@@ -12,7 +12,9 @@ unit-tested production-style Python**.
 > harm. See the safety constraint inside `app/agents.py`.
 
 
-# you can see an example for a senrio in app. 
+**See a real example run** (rendered exactly like the live dashboard, no setup required):
+[examples/example_scenario.html](https://htmlpreview.github.io/?https://github.com/shaimove/second_cold_war/blob/main/examples/example_scenario.html)
+
 ---
 
 ## Why this is an "agentic" AI system

@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cold War Scenario Simulator &mdash; Example Run</title>
+  <style>:root {
+  --bg: #0a0f1a;
+  --bg-soft: #111827;
+  --panel: #131c2e;
+  --panel-edge: #1f2a44;
+  --text: #e5edf7;
+  --muted: #8aa0bf;
+  --accent: #4c8bf5;
+  --accent-soft: #1d3a73;
+  --good: #34d399;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: radial-gradient(1200px 600px at 10% -10%, #1b2a4e 0%, transparent 60%),
+              radial-gradient(900px 500px at 100% 0%, #21314f 0%, transparent 55%),
+              var(--bg);
+  color: var(--text);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  min-height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--panel-edge);
+  background: rgba(10, 15, 26, 0.7);
+  backdrop-filter: blur(6px);
+  position: sticky; top: 0; z-index: 10;
+}
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand-mark {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #4c8bf5, #8b5cf6);
+  box-shadow: 0 0 0 3px rgba(76,139,245,0.18);
+}
+.brand h1 { margin: 0; font-size: 18px; letter-spacing: 0.2px; }
+.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.model-pill {
+  font-size: 12px; color: var(--muted);
+  border: 1px solid var(--panel-edge);
+  background: var(--panel);
+  padding: 6px 10px; border-radius: 999px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 24px;
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+@media (max-width: 1024px) {
+  .layout { grid-template-columns: 1fr; }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  margin-bottom: 18px;
+}
+.panel h2, .panel h3 { margin-top: 0; }
+.panel h2 { font-size: 14px; letter-spacing: 0.3px; text-transform: uppercase; color: var(--muted); }
+.panel h3 { font-size: 14px; color: var(--text); }
+
+.input-panel label {
+  display: block; font-size: 12px; color: var(--muted);
+  margin: 12px 0 6px;
+}
+.input-panel textarea,
+.input-panel select {
+  width: 100%;
+  background: var(--bg-soft);
+  color: var(--text);
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+}
+.input-panel textarea:focus,
+.input-panel select:focus { border-color: var(--accent); }
+
+.examples { margin: 10px 0 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.examples span { font-size: 11px; color: var(--muted); margin-right: 4px; }
+.chip {
+  font-size: 11px;
+  background: var(--accent-soft);
+  color: var(--text);
+  border: 1px solid var(--panel-edge);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.chip:hover { background: #2a4a8a; }
+
+.primary {
+  width: 100%;
+  background: linear-gradient(135deg, #4c8bf5, #6366f1);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 6px;
+}
+.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.status { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px; }
+
+.progress-list { list-style: none; padding: 0; margin: 0; }
+.progress-list li {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--muted);
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(255,255,255,0.05);
+}
+.progress-list li::before {
+  content: ""; width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--panel-edge);
+  flex: 0 0 8px;
+}
+.progress-list li.active { color: var(--text); }
+.progress-list li.active::before { background: var(--warn); box-shadow: 0 0 0 3px rgba(251,191,36,0.2); }
+.progress-list li.done { color: var(--text); }
+.progress-list li.done::before { background: var(--good); box-shadow: 0 0 0 3px rgba(52,211,153,0.18); }
+
+.saved-runs { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow: auto; }
+.saved-runs li {
+  font-size: 12px; padding: 8px 0;
+  border-bottom: 1px dashed rgba(255,255,255,0.05);
+  cursor: pointer;
+}
+.saved-runs li:hover { color: var(--accent); }
+.saved-runs .seed { color: var(--text); }
+.saved-runs .ts { color: var(--muted); font-size: 11px; }
+
+.empty {
+  border: 1px dashed var(--panel-edge);
+  border-radius: 14px;
+  padding: 60px 30px;
+  text-align: center;
+  color: var(--muted);
+}
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.hidden { display: none; }
+
+.result-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 18px; background: var(--panel);
+  border: 1px solid var(--panel-edge); border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.result-header h2 { margin: 0; font-size: 18px; }
+.badge {
+  font-size: 11px; padding: 4px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.4px;
+}
+.badge.hypothetical { background: #3b2a55; }
+.badge.observed { background: #1e3d2a; }
+.badge.mixed { background: #553a1a; }
+.summary {
+  padding: 0 18px 18px;
+  margin: -10px 0 18px;
+  background: var(--panel);
+  border: 1px solid var(--panel-edge); border-top: none;
+  border-radius: 0 0 14px 14px;
+  color: var(--text);
+}
+
+.grid-2 {
+  display: grid; gap: 18px;
+  grid-template-columns: 1fr 1fr;
+}
+@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+.timeline {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.year-card {
+  background: var(--bg-soft);
+  border: 1px solid var(--panel-edge);
+  border-radius: 12px;
+  padding: 14px;
+}
+.year-card .year {
+  font-size: 12px; color: var(--muted); letter-spacing: 0.5px;
+}
+.year-card .headline { font-weight: 600; margin: 4px 0 10px; }
+.event {
+  border-top: 1px dashed rgba(255,255,255,0.06);
+  padding-top: 8px; margin-top: 8px; font-size: 12px;
+}
+.event-meta {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 4px 0;
+}
+.tag {
+  font-size: 10px; padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--text);
+}
+.tag.impact-high { background: #5b1d1d; }
+.tag.impact-medium { background: #4b3a17; }
+.tag.impact-low { background: #1d3a30; }
+.tag.confidence-low { background: #3a1d3a; }
+
+.bullets { padding-left: 18px; margin: 0; }
+.bullets li { margin: 4px 0; }
+
+.round-block {
+  background: var(--bg-soft);
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.round-block .label { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+.round-block .row { display: flex; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+
+.agent-card {
+  background: var(--bg-soft);
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.agent-card .name { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+
+.image-panel .image-box {
+  display: flex; justify-content: center; align-items: center;
+  min-height: 180px;
+  background: var(--bg-soft);
+  border: 1px dashed var(--panel-edge);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.image-box img { max-width: 100%; height: auto; display: block; }
+.image-box .placeholder { padding: 20px; color: var(--muted); text-align: center; font-size: 12px; }
+.prompt-details { font-size: 12px; color: var(--muted); }
+.prompt-details summary { cursor: pointer; }
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.metric {
+  background: var(--bg-soft);
+  border: 1px solid var(--panel-edge);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.metric .k { font-size: 11px; color: var(--muted); }
+.metric .v { font-size: 16px; font-weight: 600; }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <h1>Cold War Scenario Simulator</h1>
+        <p class="subtitle">
+          Multi-agent geopolitical scenario planning for USA&ndash;China rivalry, 2026&ndash;2031
+        </p>
+      </div>
+    </div>
+    <div class="model-pill" id="modelPill">example run</div>
+  </header>
+
+  <main class="layout" style="grid-template-columns: 1fr;">
+    <section class="content">
+      <div class="panel" style="background: rgba(76,139,245,0.08); border-color: #2a4a8a;">
+        <strong>This is a static example of one real scenario run.</strong>
+        <span class="muted small">
+          &nbsp;Generated by the multi-agent pipeline (Orchestrator + Evidence/RAG + 5 domain agents + Red-Team)
+          and rendered exactly as the live dashboard would. Source repo:
+          <a href="https://github.com/shaimove/second_cold_war" style="color:#9bb6e6;">shaimove/second_cold_war</a>.
+        </span>
+      </div>
+
+      <div id="result" class="result">
+        <header class="result-header">
+          <h2 id="scenarioTitle"></h2>
+          <span id="statusBadge" class="badge"></span>
+        </header>
+        <p id="scenarioSummary" class="summary"></p>
+
+        <div class="panel">
+          <h3>Seed</h3>
+          <p id="seed" class="muted"></p>
+        </div>
+
+        <section class="panel">
+          <h3>Timeline 2026&ndash;2031</h3>
+          <div id="timeline" class="timeline"></div>
+        </section>
+
+        <div class="grid-2">
+          <section class="panel">
+            <h3>Agent discussion</h3>
+            <div id="discussion"></div>
+          </section>
+          <section class="panel">
+            <h3>Agent summaries</h3>
+            <div id="agentSummaries"></div>
+          </section>
+        </div>
+
+        <div class="grid-2">
+          <section class="panel">
+            <h3>Main disagreements</h3>
+            <ul id="disagreements" class="bullets"></ul>
+          </section>
+          <section class="panel">
+            <h3>Red-team warnings</h3>
+            <ul id="redTeam" class="bullets"></ul>
+          </section>
+        </div>
+
+        <section class="panel image-panel">
+          <h3>Generated illustration</h3>
+          <div id="imageBox" class="image-box"></div>
+          <details class="prompt-details" open>
+            <summary>Image prompt</summary>
+            <p id="imagePrompt" class="muted small"></p>
+          </details>
+        </section>
+
+        <section class="panel">
+          <h3>Run metrics</h3>
+          <div id="metrics" class="metrics"></div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const DATA = {"run_id": "run_9a990358426f", "scenario_title": "AI Unwind, Rivalry Tightens", "scenario_summary": "One plausible scenario for 2026-2031 is that an AI valuation unwind begins as a sharp repricing in equities and private markets, then only becomes a broader financial stress event if leverage, refinancing needs, and confidence shocks prove larger than expected. The first-order effects are economic: tighter credit, weaker growth, and more constrained fiscal and political room in the U.S. and China. In that environment, rivalry hardens through rhetoric, industrial policy, export controls, and gray-zone pressure, while both sides still avoid direct military escalation. Taiwan is affected mainly through weaker global demand, tighter dollar funding, and lower risk appetite, not an immediate security crisis. The main uncertainty is whether policymakers contain the shock or whether it cascades into a 2008-like liquidity event.", "seed": "the AI bubble collapse and financial criss start.", "scenario_mode": "base_case", "event_status": "hypothetical", "timeline": [{"year": 2026, "headline": "U.S. AI equity repricing becomes a political issue", "events": [{"event": "AI equity valuations correct sharply; volatility rises", "domain": "strategy", "probability": 0.45, "impact": "medium", "confidence": "medium", "rationale": "A repricing would likely start in public markets where sentiment and concentration are highest."}, {"event": "AI equity repricing begins; volatility rises", "domain": "economy", "probability": 0.45, "impact": "medium", "confidence": "medium", "rationale": "A valuation reset is the most plausible first-order transmission from an AI bubble unwind."}, {"event": "U.S. AI equity repricing becomes a political issue", "domain": "ideology", "probability": 0.55, "impact": "medium", "confidence": "medium", "rationale": "Early losses would likely trigger blame contests over speculation, regulation, and the distribution of gains from AI."}, {"event": "AI valuations reprice sharply; volatility rises", "domain": "historical", "probability": 0.45, "impact": "medium", "confidence": "medium", "rationale": "A speculative unwind would likely begin in public equity markets before broader credit stress appears."}]}, {"year": 2027, "headline": "Chinese propaganda frames U.S. turmoil as systemic Western weakness", "events": [{"event": "Stress spreads into private credit and refinancing markets", "domain": "strategy", "probability": 0.4, "impact": "high", "confidence": "medium", "rationale": "Leverage and maturity mismatch typically transmit shocks from equities into funding channels with a lag."}, {"event": "Private credit and leveraged funds face stress", "domain": "economy", "probability": 0.4, "impact": "high", "confidence": "medium", "rationale": "Refinancing needs and margin pressure are likely to expose concentrated funding vulnerabilities."}, {"event": "Chinese propaganda frames U.S. turmoil as systemic Western weakness", "domain": "ideology", "probability": 0.6, "impact": "medium", "confidence": "medium", "rationale": "Beijing would likely exploit visible U.S. financial stress to bolster domestic legitimacy and ideological confidence."}, {"event": "Credit and private-market stress broadens", "domain": "security", "probability": 0.4, "impact": "medium", "confidence": "medium", "rationale": "If leverage and refinancing pressure spread, Taiwan faces tighter external financing conditions and more fragile regional risk appetite."}, {"event": "Private credit and refinancing stress intensify", "domain": "historical", "probability": 0.4, "impact": "high", "confidence": "medium", "rationale": "Funding fragility and margin pressure can propagate from AI exposures into nonbank credit and liquidity conditions."}]}, {"year": 2028, "headline": "U.S. domestic backlash targets tech elites and regulators", "events": [{"event": "Policy response stabilizes core banking but leaves growth weak", "domain": "strategy", "probability": 0.35, "impact": "high", "confidence": "low", "rationale": "Authorities can often contain systemic panic, but not quickly restore risk appetite or asset prices."}, {"event": "Broader credit tightening hits real economy", "domain": "economy", "probability": 0.3, "impact": "high", "confidence": "low", "rationale": "If losses spread, lenders and investors will likely pull back from risk, tightening conditions economy-wide."}, {"event": "U.S. domestic backlash targets tech elites and regulators", "domain": "ideology", "probability": 0.5, "impact": "high", "confidence": "medium", "rationale": "If unemployment or household wealth effects broaden, political pressure would intensify around antitrust, market oversight, and bailout politics."}, {"event": "Gray-zone pressure intensifies amid distraction", "domain": "security", "probability": 0.35, "impact": "high", "confidence": "low", "rationale": "A prolonged global downturn could encourage more coercive signaling around Taiwan while reducing the consistency of allied responses."}, {"event": "Broader financial tightening constrains investment and policy space", "domain": "historical", "probability": 0.35, "impact": "high", "confidence": "medium", "rationale": "If the unwind becomes systemic, wealth effects and tighter credit can reduce fiscal and monetary flexibility."}]}, {"year": 2029, "headline": "CCP tightens information control amid slower growth and external uncertainty", "events": [{"event": "China increases gray-zone pressure and diplomatic probing", "domain": "strategy", "probability": 0.4, "impact": "medium", "confidence": "medium", "rationale": "A distracted and fiscally constrained U.S. and allies create openings for calibrated coercion below the threshold of war."}, {"event": "Policy response stabilizes markets but growth remains weak", "domain": "economy", "probability": 0.35, "impact": "medium", "confidence": "low", "rationale": "Authorities would likely use liquidity and fiscal tools, but confidence repair may lag."}, {"event": "CCP tightens information control amid slower growth and external uncertainty", "domain": "ideology", "probability": 0.45, "impact": "medium", "confidence": "medium", "rationale": "Economic stress would increase the regime's sensitivity to social stability and narrative discipline."}, {"event": "Deterrence signaling becomes more politically constrained", "domain": "security", "probability": 0.3, "impact": "medium", "confidence": "low", "rationale": "Domestic economic stress in major powers may narrow the space for sustained reassurance, exercises, and crisis messaging."}, {"event": "China seeks selective advantage through diplomacy and gray-zone pressure", "domain": "historical", "probability": 0.3, "impact": "medium", "confidence": "low", "rationale": "A distracted or risk-averse U.S. may create openings for calibrated pressure, though outcomes depend on domestic conditions in both countries."}]}, {"year": 2030, "headline": "Nationalist framing hardens on both sides", "events": [{"event": "Allied rearmament and industrial policy slow but continue", "domain": "strategy", "probability": 0.3, "impact": "medium", "confidence": "low", "rationale": "Budget stress may delay but not eliminate strategic adaptation in Japan, Europe, India, and Australia."}, {"event": "Selective consolidation in AI and tech supply chains", "domain": "economy", "probability": 0.25, "impact": "medium", "confidence": "low", "rationale": "Weaker funding and lower valuations would likely force mergers, shutdowns, and capex cuts."}, {"event": "Nationalist framing hardens on both sides", "domain": "ideology", "probability": 0.4, "impact": "medium", "confidence": "low", "rationale": "Prolonged economic weakness would make external blame and ideological competition more attractive to elites."}, {"event": "Cross-strait crisis management becomes more brittle", "domain": "security", "probability": 0.25, "impact": "high", "confidence": "low", "rationale": "Persistent financial weakness can amplify misperception and reduce tolerance for prolonged standoffs."}, {"event": "Supply-chain and technology decoupling pressures deepen selectively", "domain": "historical", "probability": 0.25, "impact": "medium", "confidence": "low", "rationale": "Stress may accelerate existing tech restrictions and resilience efforts without producing full economic separation."}]}, {"year": 2031, "headline": "Markets normalize at lower valuations; strategic competition remains intense", "events": [{"event": "Markets normalize at lower valuations; strategic competition remains intense", "domain": "strategy", "probability": 0.35, "impact": "medium", "confidence": "low", "rationale": "The crisis is more likely to reshape tempo and resources than to permanently resolve geopolitical rivalry."}, {"event": "Post-crisis normalization with lower risk appetite", "domain": "economy", "probability": 0.3, "impact": "medium", "confidence": "low", "rationale": "Even after stabilization, capital markets may remain more cautious and expensive."}, {"event": "Policy focus shifts toward stabilization over innovation", "domain": "ideology", "probability": 0.35, "impact": "medium", "confidence": "low", "rationale": "After a multi-year shock, both governments would likely prioritize social stability and financial repair over aggressive risk-taking."}, {"event": "Partial stabilization or new equilibrium emerges", "domain": "security", "probability": 0.3, "impact": "medium", "confidence": "low", "rationale": "By this stage, markets and policy responses may either stabilize conditions or leave a lower-growth, higher-friction strategic environment."}, {"event": "Taiwan risk remains elevated but mostly through coercion and signaling", "domain": "historical", "probability": 0.2, "impact": "high", "confidence": "low", "rationale": "The main danger is crisis instability and gray-zone escalation, while direct conflict remains a lower-probability tail risk."}]}], "key_assumptions": ["The shock likely transmits first through equity repricing, then into credit and funding stress", "The main mechanism is leverage and confidence rather than a single-point failure", "An AI-bubble unwind would likely transmit first through equity repricing and then into credit, private markets, and funding stress.", "The main mechanism is leverage/confidence shock rather than a single-point failure.", "The shock likely transmits first through equity repricing and then into credit and funding stress", "The main mechanism is leverage and confidence shock rather than a single-point failure", "An AI-bubble unwind would likely transmit first through equity repricing and then into credit, private markets, and funding stress", "The main transmission mechanism is leverage and confidence shock, not a single-point failure"], "main_disagreements": ["How strong the causal chain is from AI bubble collapse to a full financial crisis.", "Whether the unwind stays orderly or becomes a confidence-and-liquidity shock.", "How much domestic political blame falls on regulators versus market actors.", "How far geopolitical spillovers go: indirect strategic pressure versus a broader rivalry escalation.", "Whether weaker growth materially constrains U.S. and allied strategy or mainly creates short-term volatility."], "red_team_warnings": ["Causal chain from AI bubble collapse to financial crisis is asserted too strongly", "Missing leverage and exposure data", "Policy response is under-modeled", "Timeline precision exceeds evidence", "Geopolitical spillovers are treated as near-inevitable"], "agent_summaries": {"geo_strategy": "A 2026-2031 AI-bubble unwind would most likely begin as an equity and private-market repricing, then propagate into credit, funding, and confidence stress across the U.S. and global system. The geopolitical effect is indirect but meaningful: weaker growth, tighter fiscal space, and more domestic political pressure reduce U.S. and allied strategic flexibility, while China may try to exploit dist...", "economy_technology": "In the base-case downside path, an AI valuation unwind is most likely to propagate through equity repricing, then into private credit, leveraged funds, and refinancing markets. The core risk is a confidence-and-liquidity shock amplified by leverage and concentrated exposure, not a single-point technical failure. By 2028-2031, the key question is whether the stress remains a market correction or...", "domestic_ideology": "A 2026-2031 AI-bubble unwind would be filtered in both the U.S. and China through domestic political legitimacy, not just market fundamentals. In the U.S., the key pressure points are household wealth losses, employment, and blame over whether regulators overreached or failed; in China, the CCP would likely use the downturn to reinforce its narrative that Western financial capitalism is unstabl...", "security_taiwan": "A 2026-2031 AI-bubble unwind and financial crisis would most likely affect Taiwan indirectly through weaker global demand, tighter dollar funding, and lower risk appetite rather than through immediate military escalation. The strategic danger is a more fragile crisis environment: Beijing may see greater room for gray-zone pressure, while Washington and partners face reduced fiscal and political...", "historical_analogy": "The best historical analogies are the dot-com unwind and the 2008 financial crisis, not the U.S.-USSR rivalry. The U.S.-USSR frame is useful only for crisis-stability thinking—deterrence, signaling, and avoiding escalation under stress—but it is misleading as a model for the economic transmission mechanism because U.S.-China rivalry is embedded in deep trade, capital, and technology interdepend...", "red_team": "The scenario is plausible but still overstates causal certainty: an AI valuation collapse does not automatically become a financial crisis unless leverage, funding fragility, and concentrated exposures are large enough. The timeline is directionally reasonable, but the probabilities are not well grounded without explicit assumptions on market structure, policy response, and whether the unwind i..."}, "discussion_summary": [{"round_number": 1, "areas_of_agreement": ["An AI-bubble unwind would likely transmit first through equity repricing and then into credit, private markets, and funding stress.", "The main mechanism is leverage/confidence shock rather than a single-point failure.", "Geopolitical effects are indirect, mainly via reduced fiscal flexibility, weaker risk appetite, and domestic political pressure.", "Taiwan is more likely to face indirect economic and gray-zone risks than immediate military conflict.", "The best historical framing is closer to a dot-com unwind plus financial-crisis dynamics than a pure great-power collapse analogy."], "areas_of_disagreement": [], "emerging_timeline": ["2026: AI asset repricing begins in equities; volatility rises and confidence weakens.", "2027: Stress spreads into private credit, margin calls, refinancing pressure, and broader financial tightening."], "key_uncertainties": ["How concentrated leverage and funding exposure are across AI-linked assets and private markets.", "Whether the shock stays contained to markets or becomes a broader banking/nonbank funding crisis.", "How U.S. and Chinese domestic politics interpret and exploit the downturn.", "Whether reduced risk appetite materially changes cross-strait behavior or only increases gray-zone pressure."], "agent_positions": {"geo_strategy": "A 2026-2031 AI-bubble unwind would likely hit first via U.S. and global equity repricing, then spread into credit, private markets, and bank/nonbank funding stress; the geopolitical effect is mainly a confidence shock that constrains U.S./allied fiscal flexibility, while China may seek selective advantage.", "economy_technology": "A base-case AI asset repricing would likely trigger broader financial stress through leverage, concentrated funding, and confidence shocks, with transmission via equity wealth effects, private credit exposure, margin calls, and tighter refinancing conditions."}}, {"round_number": 2, "areas_of_agreement": ["An AI-bubble unwind would likely start with equity and private-market repricing, then spread into credit, funding, and confidence stress.", "The main transmission mechanism is financial and macroeconomic rather than a direct technical failure.", "The geopolitical impact is indirect but real: weaker growth, tighter fiscal space, and more domestic political pressure.", "Taiwan would be affected mainly through weaker global demand, tighter dollar funding, and lower risk appetite, not immediate military escalation.", "The most useful historical analogies are the dot-com unwind and 2008, with U.S.-USSR relevant only for crisis-stability lessons."], "areas_of_disagreement": [], "emerging_timeline": ["2026: Early valuation correction in AI-linked equities and private markets; confidence begins to weaken.", "2027: Stress propagates into private credit, leveraged funds, and refinancing markets; political blame and legitimacy narratives intensify.", "2028-2031: Broader macro and geopolitical effects emerge as growth slows, fiscal space tightens, and strategic competition becomes more fragile."], "key_uncertainties": ["How concentrated leverage and private-market exposure are across the financial system.", "Whether the unwind remains orderly or becomes a confidence-and-liquidity shock.", "How much domestic political blame falls on regulators versus market actors.", "How strongly China uses the downturn for legitimacy narratives and gray-zone pressure.", "Whether weaker growth materially constrains U.S. and allied strategy.", "How severe the spillover is for Taiwan via funding conditions and global demand."], "agent_positions": {"geo_strategy": "A 2026-2031 AI-bubble unwind would most likely begin as an equity and private-market repricing, then propagate into credit, funding, and confidence stress across the U.S. and global system. The geopolitical effect is indirect but meaningful: weaker growth, tighter fiscal space, and more domestic political pressure reduce U.S. and allied strategic room, while China may exploit the environment for p", "economy_technology": "In the base-case downside path, an AI valuation unwind is most likely to propagate through equity repricing, then into private credit, leveraged funds, and refinancing markets. The core risk is a confidence-and-liquidity shock amplified by leverage and concentrated exposure, not a single-point technical failure. By 2028-2031, the key question is whether the shock stays contained or becomes a broad"}}], "image_prompt": "Non-graphic editorial illustration of U.S.-China rivalry in a tense but controlled diplomatic setting: split composition with Washington and Beijing officials at a negotiation table, trading charts and semiconductor icons hovering subtly in the background, financial market screens showing volatility, cargo ships and data cables linking the two sides, muted red-blue palette, emphasis on diplomacy, trade, and technology, sober newsroom style, no weapons, no combat, no violence.", "image": {"enabled": true, "generated": true, "path": "data/generated_images/run_9a990358426f.png", "error": null, "mock": false}, "run_metrics": {"llm_calls": 15, "agents_used": ["evidence_rag", "geo_strategy", "economy_technology", "domestic_ideology", "security_taiwan", "historical_analogy", "orchestrator_summary", "red_team", "orchestrator_final"], "retrieved_docs": 0, "cache_hits": 0, "discussion_rounds_completed": 2, "elapsed_seconds": 180.804, "estimated_input_tokens": 12903, "estimated_output_tokens": 13143}};
+    const IMAGE_URL = "example_image.png";
+    
+function $(s) { return document.querySelector(s); }
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+function render(data, imageUrl) {
+  $("#scenarioTitle").textContent = data.scenario_title || "(untitled scenario)";
+  $("#scenarioSummary").textContent = data.scenario_summary || "";
+  $("#seed").textContent = data.seed || "";
+  const badge = $("#statusBadge");
+  badge.textContent = data.event_status || "hypothetical";
+  badge.className = "badge " + (data.event_status || "hypothetical");
+
+  const tl = $("#timeline"); tl.innerHTML = "";
+  (data.timeline || []).forEach((yb) => {
+    const card = document.createElement("div");
+    card.className = "year-card";
+    const events = (yb.events || []).map((ev) => {
+      const prob = (ev.probability != null) ? (Math.round(ev.probability * 100) + "%") : "—";
+      return (
+        '<div class="event">' +
+          '<div>' + escapeHtml(ev.event || "") + '</div>' +
+          '<div class="event-meta">' +
+            '<span class="tag">' + escapeHtml(ev.domain || "") + '</span>' +
+            '<span class="tag impact-' + escapeHtml(ev.impact || "medium") + '">impact: ' + escapeHtml(ev.impact || "") + '</span>' +
+            '<span class="tag confidence-' + escapeHtml(ev.confidence || "medium") + '">conf: ' + escapeHtml(ev.confidence || "") + '</span>' +
+            '<span class="tag">p=' + prob + '</span>' +
+          '</div>' +
+          '<div class="muted small">' + escapeHtml(ev.rationale || "") + '</div>' +
+        '</div>'
+      );
+    }).join("");
+    card.innerHTML =
+      '<div class="year">' + escapeHtml(String(yb.year)) + '</div>' +
+      '<div class="headline">' + escapeHtml(yb.headline || "") + '</div>' +
+      (events || '<div class="muted small">No events.</div>');
+    tl.appendChild(card);
+  });
+
+  const disc = $("#discussion"); disc.innerHTML = "";
+  (data.discussion_summary || []).forEach((r) => {
+    const block = document.createElement("div");
+    block.className = "round-block";
+    const agree = (r.areas_of_agreement || []).map(escapeHtml).join(" · ") || "—";
+    const disagree = (r.areas_of_disagreement || []).map(escapeHtml).join(" · ") || "—";
+    const uncert = (r.key_uncertainties || []).map(escapeHtml).join(" · ") || "—";
+    block.innerHTML =
+      '<div class="label">Round ' + escapeHtml(String(r.round_number || "?")) + '</div>' +
+      '<div class="row"><strong>Agree:</strong> ' + agree + '</div>' +
+      '<div class="row"><strong>Disagree:</strong> ' + disagree + '</div>' +
+      '<div class="row"><strong>Uncertain:</strong> ' + uncert + '</div>';
+    disc.appendChild(block);
+  });
+
+  const summaries = $("#agentSummaries"); summaries.innerHTML = "";
+  const order = ["geo_strategy", "economy_technology", "domestic_ideology", "security_taiwan", "historical_analogy", "red_team"];
+  const map = data.agent_summaries || {};
+  order.forEach((k) => {
+    if (!map[k]) return;
+    const div = document.createElement("div");
+    div.className = "agent-card";
+    div.innerHTML = '<div class="name">' + escapeHtml(k.replace(/_/g, " ")) + '</div><div>' + escapeHtml(map[k]) + '</div>';
+    summaries.appendChild(div);
+  });
+
+  function fillList(sel, items) {
+    const root = $(sel); root.innerHTML = "";
+    if (!items.length) { root.innerHTML = '<li class="muted">None.</li>'; return; }
+    items.forEach((x) => { const li = document.createElement("li"); li.textContent = x; root.appendChild(li); });
+  }
+  fillList("#disagreements", data.main_disagreements || []);
+  fillList("#redTeam", data.red_team_warnings || []);
+
+  const box = $("#imageBox"); box.innerHTML = "";
+  if (imageUrl) {
+    const img = document.createElement("img");
+    img.src = imageUrl;
+    img.alt = "Generated illustration";
+    box.appendChild(img);
+  } else {
+    box.innerHTML = '<div class="placeholder"><strong>No image available.</strong></div>';
+  }
+  $("#imagePrompt").textContent = data.image_prompt || "(no prompt)";
+
+  const m = data.run_metrics || {};
+  const metricsRoot = $("#metrics"); metricsRoot.innerHTML = "";
+  [
+    ["LLM calls", m.llm_calls],
+    ["Cache hits", m.cache_hits],
+    ["Retrieved docs", m.retrieved_docs],
+    ["Rounds completed", m.discussion_rounds_completed],
+    ["Elapsed (s)", m.elapsed_seconds],
+    ["Est. in tokens", m.estimated_input_tokens],
+    ["Est. out tokens", m.estimated_output_tokens],
+    ["Agents used", (m.agents_used || []).length],
+  ].forEach(([k, v]) => {
+    const d = document.createElement("div");
+    d.className = "metric";
+    d.innerHTML = '<div class="k">' + escapeHtml(k) + '</div><div class="v">' + escapeHtml(String(v == null ? "—" : v)) + '</div>';
+    metricsRoot.appendChild(d);
+  });
+}
+
+    render(DATA, IMAGE_URL);
+  </script>
+</body>
+</html>
