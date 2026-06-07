@@ -108,5 +108,8 @@ def ingest() -> Dict[str, Any]:
     return {
         "chunk_count": result.chunk_count,
         "files_processed": result.files_processed,
+        "pdf_files": result.pdf_files,
+        "text_files": result.text_files,
+        "skipped_files": result.skipped_files,
         "output_path": result.output_path,
     }

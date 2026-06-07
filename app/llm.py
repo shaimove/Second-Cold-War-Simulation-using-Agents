@@ -299,6 +299,10 @@ def _mock_json(
             "agreements": [],
             "disagreements": ["Pace of decoupling assumed too steady"],
             "position_changed_from_previous_round": False,
+            "sources_used": [],
+            "grounding_notes": [],
+            "rag_influence": "not_used",
+            "rag_influence_explanation": "",
             "findings": [
                 {
                     "issue": "Assumes steady decoupling",
@@ -311,6 +315,16 @@ def _mock_json(
                     "affected_assumption": "Decoupling speed",
                 },
             ],
+        }
+
+    if schema_name == "json_repair" or agent_name == "orchestrator_json_repair":
+        return {
+            "scenario_title": "Repaired USA-China Scenario (Mock)",
+            "scenario_summary": "Mock repaired synthesis preserving seed meaning.",
+            "event_status": "hypothetical",
+            "key_assumptions": ["Repaired output"],
+            "main_disagreements": ["Repair agent restored schema"],
+            "image_prompt": _MOCK_IMAGE_PROMPT,
         }
 
     if schema_name == "final_synthesis" or agent_name == "orchestrator_final":
@@ -375,6 +389,10 @@ def _mock_json(
         "agreements": ["Taiwan is central"],
         "disagreements": ["Pace of decoupling"],
         "position_changed_from_previous_round": round_number > 1,
+        "sources_used": [],
+        "grounding_notes": [],
+        "rag_influence": "not_used",
+        "rag_influence_explanation": "",
         "_mock_domain": domain,
     }
 

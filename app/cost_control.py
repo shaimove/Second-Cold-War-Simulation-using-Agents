@@ -92,13 +92,26 @@ def build_discussion_summary(
                 break
         return seen
 
+    deduped_disagreements = _dedupe(disagreements, 6)
+    query_terms: List[str] = []
+    for d in deduped_disagreements:
+        for word in d.split():
+            w = word.strip(".,;:").lower()
+            if len(w) > 4 and w not in query_terms:
+                query_terms.append(w)
+            if len(query_terms) >= 8:
+                break
+        if len(query_terms) >= 8:
+            break
+
     return DiscussionSummary(
         round_number=round_number,
         areas_of_agreement=_dedupe(agreements, 6),
-        areas_of_disagreement=_dedupe(disagreements, 6),
+        areas_of_disagreement=deduped_disagreements,
         emerging_timeline=_dedupe(timeline_bits, 8),
         key_uncertainties=_dedupe(uncertainties, 6),
         agent_positions=positions,
+        disagreement_query_terms=query_terms,
     )
 
 

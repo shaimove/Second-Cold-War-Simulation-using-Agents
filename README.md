@@ -15,6 +15,10 @@ unit-tested production-style Python**.
 **See a real example run** (rendered exactly like the live dashboard, no setup required):
 [examples/example_scenario.html](https://htmlpreview.github.io/?https://github.com/shaimove/second_cold_war/blob/main/examples/example_scenario.html)
 
+**Understand the code pipeline:** [docs/PIPELINE.md](docs/PIPELINE.md)  
+**Deep dive (file + line + function per step):** [docs/PIPELINE_CODE_WALKTHROUGH.md](docs/PIPELINE_CODE_WALKTHROUGH.md)  
+**Interview algo spec (design, prompts, tuning):** [docs/ALGO_SPEC.md](docs/ALGO_SPEC.md)
+
 ---
 
 ## Why this is an "agentic" AI system
@@ -100,8 +104,9 @@ rounds.
 
 ## RAG
 
-The knowledge base is just a folder of `.md` / `.txt` files in
-`knowledge_base/`. `scripts/ingest_docs.py` chunks them, infers a
+The knowledge base is a folder of `.md`, `.txt`, and `.pdf` files in
+`knowledge_base/`. `scripts/ingest_docs.py` extracts PDF text (cached
+under `data/preprocessed/`), chunks all documents, infers a
 `source_type` (`current_context | historical_analogy | strategy_framework
 | unknown`) from the path, and writes them to `data/rag_chunks.json`.
 
@@ -122,6 +127,29 @@ python scripts/ingest_docs.py
 ```
 
 or hit `POST /api/ingest` while the app is running.
+
+### Tier 2 RAG upgrade
+
+Agents do **not** read the entire knowledge base. One shared index is
+searched with **metadata filters** (domain, source type, period inferred
+from folder and filename). Each specialist receives a **targeted evidence
+packet**:
+
+- **Baseline retrieval** at the Evidence step (broad seed query).
+- **Round 1:** per-agent retrieval (3–4 chunks) plus role-specific evidence
+  lanes (observed, historical, economy, security, etc.).
+- **Round 2:** shared **disagreement retrieval** from the Orchestrator’s
+  round-1 summary (no second per-agent search).
+- **Round 3:** reuses round-2 disagreement evidence by default (no new
+  retrieval unless `RAG_ENABLE_ROUND3_NEW_RETRIEVAL=true`).
+- **Red-Team:** critique-focused retrieval before the challenge pass.
+- **Final Orchestrator:** compact `FinalEvidencePacket` (cited chunks,
+  top lanes, dispute notes)—not raw full-corpus dumps.
+
+Agents may cite only `chunk_id`s provided in their prompt; invalid citations
+are stripped and recorded in `run_metrics.citation_warnings`. Tune behavior
+via `app/rag_config.py` or env vars such as `RAG_AGENT_ROUND1_FINAL_K`,
+`RAG_ENABLE_AGENT_RAG`, `RAG_MAX_FINAL_EVIDENCE_ITEMS`.
 
 ---
 
@@ -144,12 +172,15 @@ prompt and calls `OPENAI_IMAGE_MODEL`. Generated PNGs are saved under
 
 | Technique | Implementation |
 |---|---|
-| Shared evidence summary | `cost_control.compact_evidence_for_agents` |
+| Evidence lanes + targeted packets | `rag.build_evidence_lanes`, `rag_citations.build_agent_evidence_packet` |
+| Per-agent round-1 retrieval | `rag.retrieve_for_agent` |
+| Disagreement retrieval (round 2) | `rag.retrieve_for_disagreement` |
 | Round compaction | `cost_control.build_discussion_summary` + LLM compaction |
 | Strict structured outputs | `response_format=json_object` + Pydantic coercion |
 | Early stopping | `cost_control.should_stop_early` |
 | LLM cache | SQLite `llm_cache` table keyed by hash(model+agent+context) |
-| Retrieval cache | In-process dict keyed by hash(seed+mode) |
+| Retrieval cache | In-process dict keyed by hash(seed+mode+agent+round+query+filters) |
+| RAG metrics | `rag_calls`, `unique_chunks_used`, `most_cited_chunk_ids`, etc. |
 | Token budget | `MAX_AGENT_INPUT_CHARS`, `MAX_EVIDENCE_CHARS` |
 | Mock mode | Deterministic stub responses when no API key |
 | Run metrics | LLM calls, cache hits, retrieved docs, elapsed, est. tokens |

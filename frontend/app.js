@@ -225,6 +225,11 @@
       ["LLM calls", m.llm_calls],
       ["Cache hits", m.cache_hits],
       ["Retrieved docs", m.retrieved_docs],
+      ["RAG calls", m.rag_calls],
+      ["RAG cache hits", m.rag_cache_hits],
+      ["RAG candidates", m.retrieved_candidate_chunks],
+      ["RAG final chunks", m.retrieved_final_chunks],
+      ["Unique chunks used", m.unique_chunks_used],
       ["Rounds completed", m.discussion_rounds_completed],
       ["Elapsed (s)", m.elapsed_seconds],
       ["Est. in tokens", m.estimated_input_tokens],
@@ -237,6 +242,30 @@
       d.innerHTML = '<div class="k">' + escapeHtml(k) + '</div><div class="v">' + escapeHtml(String(v == null ? "—" : v)) + '</div>';
       root.appendChild(d);
     });
+
+    const ragPanel = document.createElement("div");
+    ragPanel.className = "rag-panel";
+    const sources = m.most_used_source_files || m.rag_source_files || [];
+    const cited = m.most_cited_chunk_ids || [];
+    const chunkIds = m.retrieved_chunk_ids || [];
+    const perAgent = m.per_agent_sources_used || {};
+    let html = "<h4>RAG evidence</h4>";
+    html += "<p><strong>Source files:</strong> " + escapeHtml(sources.slice(0, 6).join(", ") || "—") + "</p>";
+    html += "<p><strong>Retrieved chunk IDs:</strong> " + escapeHtml(chunkIds.slice(0, 8).join(", ") || "—") + "</p>";
+    html += "<p><strong>Most cited:</strong> " + escapeHtml(cited.slice(0, 6).join(", ") || "—") + "</p>";
+    if (m.citation_warnings && m.citation_warnings.length) {
+      html += "<p class=\"warn\"><strong>Citation warnings:</strong> " + escapeHtml(m.citation_warnings.join("; ")) + "</p>";
+    }
+    const agentKeys = Object.keys(perAgent);
+    if (agentKeys.length) {
+      html += "<ul class=\"rag-agents\">";
+      agentKeys.forEach((name) => {
+        html += "<li><strong>" + escapeHtml(name) + ":</strong> " + escapeHtml((perAgent[name] || []).join(", ")) + "</li>";
+      });
+      html += "</ul>";
+    }
+    ragPanel.innerHTML = html;
+    root.appendChild(ragPanel);
   }
 
   async function runScenario() {

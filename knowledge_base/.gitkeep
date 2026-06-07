@@ -1,5 +1,6 @@
-# Drop .md or .txt files here, then run:
+# Drop .md, .txt, or .pdf files here, then run:
 #   python scripts/ingest_docs.py
+# PDF text is extracted once and cached under data/preprocessed/
 # Suggested folder layout:
 #   knowledge_base/history/      -> tagged as historical_analogy
 #   knowledge_base/strategy/     -> tagged as strategy_framework

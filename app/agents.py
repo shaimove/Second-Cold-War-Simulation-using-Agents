@@ -16,13 +16,19 @@ from typing import Any, Dict, List, Optional
 from . import config as _config_mod
 from .cost_control import compact_evidence_for_agents
 from .llm import LLMClient
-from .rag import retrieve_with_cache
+from .rag_citations import (
+    CITATION_SCHEMA_APPENDIX,
+    apply_citations_to_output,
+    build_agent_evidence_packet,
+    validate_and_apply_citations,
+)
 from .schemas import (
     AgentOutput,
     AgentTimelineContribution,
     DiscussionSummary,
     EvidenceChunk,
     EvidenceSummary,
+    FinalEvidencePacket,
     RedTeamFinding,
     TimelineEvent,
     YearBlock,
@@ -62,7 +68,11 @@ Required JSON shape:
   "uncertainties": ["..."],
   "agreements": ["..."],
   "disagreements": ["..."],
-  "position_changed_from_previous_round": false
+  "position_changed_from_previous_round": false,
+  "sources_used": [],
+  "grounding_notes": [{"chunk_id": "", "claim": ""}],
+  "rag_influence": "not_used",
+  "rag_influence_explanation": ""
 }
 """
 
@@ -109,23 +119,25 @@ def run_evidence_agent(
     llm: LLMClient,
     seed: str,
     scenario_mode: str,
+    baseline_chunks: Optional[List[EvidenceChunk]] = None,
 ) -> tuple:
     """Returns (EvidenceSummary, retrieved_docs_count, cache_hit)."""
-    chunks: List[EvidenceChunk] = []
+    chunks: List[EvidenceChunk] = list(baseline_chunks or [])
     cache_hit = False
-    if _config_mod.CONFIG.use_rag:
-        chunks, cache_hit = retrieve_with_cache(seed, scenario_mode)
 
     chunk_blob = "\n\n".join(
-        "SOURCE: {p} ({t}/{d})\n{txt}".format(
+        "[{id}] SOURCE: {p} ({t}/{d}/{per})\n{txt}".format(
+            id=c.chunk_id,
             p=c.source_path,
             t=c.source_type,
             d=c.domain,
-            txt=truncate(c.text, 400),
+            per=c.period,
+            txt=c.text,
         )
         for c in chunks
     )
     sources = sorted({c.source_path for c in chunks if c.source_path})
+    chunk_ids = [c.chunk_id for c in chunks if c.chunk_id]
 
     system = (
         "You are the Evidence / RAG Agent. Separate observed current "
@@ -157,7 +169,12 @@ def run_evidence_agent(
         agent_name="evidence_rag",
         round_number=0,
         schema_name="evidence_summary",
-        cache_context={"seed": seed, "mode": scenario_mode, "n_chunks": len(chunks)},
+        cache_context={
+            "seed": seed,
+            "mode": scenario_mode,
+            "n_chunks": len(chunks),
+            "chunk_ids": chunk_ids,
+        },
         fallback={
             "observed_facts": [],
             "historical_analogies": [],
@@ -182,7 +199,7 @@ def run_evidence_agent(
         compact_summary=str(data.get("compact_summary") or "")[:600],
         note=str(data.get("note") or "")[:300],
     )
-    return summary, len(chunks), cache_hit
+    return summary, len(chunks), False
 
 
 # --- Domain agents ---------------------------------------------------------
@@ -193,10 +210,14 @@ def run_domain_agent(
     agent_name: str,
     seed: str,
     scenario_mode: str,
-    evidence_blob: str,
-    round_number: int,
-    previous_summary: Optional[DiscussionSummary],
-    previous_self_position: Optional[str],
+    evidence_packet: str = "",
+    round_number: int = 1,
+    previous_summary: Optional[DiscussionSummary] = None,
+    previous_self_position: Optional[str] = None,
+    allowed_chunk_ids: Optional[List[str]] = None,
+    rag_recorder: Optional[Any] = None,
+    *,
+    evidence_blob: Optional[str] = None,
 ) -> AgentOutput:
     if agent_name not in AGENT_SYSTEM_PROMPTS:
         raise ValueError("Unknown agent: " + agent_name)
@@ -214,17 +235,19 @@ def run_domain_agent(
             previous_summary.model_dump(), ensure_ascii=False
         )
 
+    packet = evidence_packet or evidence_blob or ""
     user = (
         "Seed: " + seed + "\n"
         "Scenario mode: " + scenario_mode + "\n"
         "Years to cover: 2026-2031\n\n"
-        "Compact evidence summary:\n" + evidence_blob + "\n\n"
+        "Evidence packet (lanes + retrieved chunks):\n" + packet + "\n\n"
         "Discussion round: " + str(round_number) + "\n"
         "Previous-round discussion summary:\n"
         + (prev_summary_text or "<none - this is round 1>") + "\n\n"
         "Your previous position (if any):\n"
         + (previous_self_position or "<none>") + "\n\n"
         + DOMAIN_AGENT_SCHEMA_HINT
+        + CITATION_SCHEMA_APPENDIX
     )
     user = truncate(user, _config_mod.CONFIG.max_agent_input_chars)
 
@@ -242,6 +265,9 @@ def run_domain_agent(
         },
         fallback=fallback,
     )
+    data, _warnings = validate_and_apply_citations(
+        data, allowed_chunk_ids or [], agent_name, rag_recorder
+    )
     return _to_agent_output(agent_name, round_number, data)
 
 
@@ -252,8 +278,13 @@ def run_red_team_agent(
     llm: LLMClient,
     seed: str,
     scenario_mode: str,
-    evidence_blob: str,
-    final_round_summary: Optional[DiscussionSummary],
+    evidence_packet: str = "",
+    final_round_summary: Optional[DiscussionSummary] = None,
+    agent_positions: Optional[Dict[str, str]] = None,
+    allowed_chunk_ids: Optional[List[str]] = None,
+    rag_recorder: Optional[Any] = None,
+    *,
+    evidence_blob: Optional[str] = None,
 ) -> tuple:
     """Returns (AgentOutput, List[RedTeamFinding])."""
     system = (
@@ -269,13 +300,22 @@ def run_red_team_agent(
         else "<no discussion summary>"
     )
 
+    positions_text = ""
+    if agent_positions:
+        positions_text = "\n".join(
+            "- {k}: {v}".format(k=k, v=v[:300]) for k, v in agent_positions.items()
+        )
+
+    packet = evidence_packet or evidence_blob or ""
     user = (
         "Seed: " + seed + "\n"
         "Scenario mode: " + scenario_mode + "\n\n"
-        "Compact evidence:\n" + evidence_blob + "\n\n"
+        "Evidence packet:\n" + packet + "\n\n"
         "Final discussion summary:\n" + summary_text + "\n\n"
+        "Final agent positions:\n" + (positions_text or "<none>") + "\n\n"
         "Return JSON with:\n"
         + DOMAIN_AGENT_SCHEMA_HINT
+        + CITATION_SCHEMA_APPENDIX
         + "\nPlus a 'findings' array of "
         '{"issue": "...", "severity": "low|medium|high", '
         '"affected_assumption": "..."} objects.'
@@ -300,6 +340,9 @@ def run_red_team_agent(
         fallback=fallback,
     )
 
+    data, _warnings = validate_and_apply_citations(
+        data, allowed_chunk_ids or [], "red_team", rag_recorder
+    )
     output = _to_agent_output("red_team", round_number=99, data=data)
     findings: List[RedTeamFinding] = []
     for raw in data.get("findings") or []:
@@ -391,7 +434,7 @@ def run_orchestrator_summary(
         return heuristic
 
 
-def run_orchestrator_final_synthesis(
+def run_orchestrator_final_synthesis_raw(
     llm: LLMClient,
     seed: str,
     scenario_mode: str,
@@ -400,13 +443,13 @@ def run_orchestrator_final_synthesis(
     domain_outputs: Dict[str, AgentOutput],
     red_team: AgentOutput,
     red_team_findings: List[RedTeamFinding],
+    final_evidence_packet: Optional[FinalEvidencePacket] = None,
+    regeneration: bool = False,
 ) -> Dict[str, Any]:
-    """LLM-backed final synthesis.
+    """Call the final orchestrator LLM and return raw JSON (unvalidated).
 
-    Returns a dict with: scenario_title, scenario_summary, event_status,
-    key_assumptions, main_disagreements, image_prompt. The Orchestrator
-    deterministically builds the full per-year timeline (see
-    `build_final_timeline` below) from the agent contributions.
+    Validation/repair is applied in `final_output_validation.resolve_orchestrator_synthesis`
+    from the graph node only.
     """
     system = (
         "You are the Orchestrator. Synthesize one PLAUSIBLE (not "
@@ -429,11 +472,19 @@ def run_orchestrator_final_synthesis(
         else "<none>"
     )
 
+    packet_txt = ""
+    if final_evidence_packet and final_evidence_packet.text:
+        packet_txt = final_evidence_packet.text
+    elif final_evidence_packet and final_evidence_packet.items:
+        packet_txt = "\n".join(final_evidence_packet.items)
+
     user = (
         "Seed: " + seed + "\n"
         "Mode: " + scenario_mode + "\n"
         "Evidence note: " + (evidence.note or "") + "\n"
         "Compact evidence: " + (evidence.compact_summary or "") + "\n\n"
+        "Final evidence packet (curated, cite-aware):\n"
+        + (packet_txt or "<none>") + "\n\n"
         "Final discussion summary:\n" + last_summary_txt + "\n\n"
         "Agent assessments:\n" + positions + "\n\n"
         "Red-team findings:\n" + (findings or "<none>") + "\n\n"
@@ -460,26 +511,43 @@ def run_orchestrator_final_synthesis(
         "main_disagreements": [d for d in (last_summary.areas_of_disagreement if last_summary else [])][:5],
         "image_prompt": "",
     }
+    cache_context = {"seed": seed, "mode": scenario_mode}
+    if regeneration:
+        cache_context["regeneration"] = True
+
     data = llm.call_llm_json(
         system_prompt=system,
         user_prompt=user,
         agent_name="orchestrator_final",
         round_number=999,
         schema_name="final_synthesis",
-        cache_context={"seed": seed, "mode": scenario_mode},
+        cache_context=cache_context,
         fallback=fallback,
     )
+    return data if isinstance(data, dict) else fallback
 
-    return {
-        "scenario_title": str(data.get("scenario_title") or fallback["scenario_title"])[:200],
-        "scenario_summary": str(data.get("scenario_summary") or fallback["scenario_summary"])[:1200],
-        "event_status": str(data.get("event_status") or "hypothetical")[:20],
-        "key_assumptions": _as_str_list(data.get("key_assumptions"))
-        or fallback["key_assumptions"],
-        "main_disagreements": _as_str_list(data.get("main_disagreements"))
-        or fallback["main_disagreements"],
-        "image_prompt": str(data.get("image_prompt") or "")[:1200],
-    }
+
+def run_orchestrator_final_synthesis(
+    llm: LLMClient,
+    seed: str,
+    scenario_mode: str,
+    evidence: EvidenceSummary,
+    last_summary: Optional[DiscussionSummary],
+    domain_outputs: Dict[str, AgentOutput],
+    red_team: AgentOutput,
+    red_team_findings: List[RedTeamFinding],
+) -> Dict[str, Any]:
+    """Backward-compatible wrapper returning raw orchestrator JSON."""
+    return run_orchestrator_final_synthesis_raw(
+        llm,
+        seed,
+        scenario_mode,
+        evidence,
+        last_summary,
+        domain_outputs,
+        red_team,
+        red_team_findings,
+    )
 
 
 def classify_event_status(seed: str) -> str:
@@ -588,7 +656,7 @@ def _to_agent_output(agent_name: str, round_number: int, data: Dict[str, Any]) -
             )
         except Exception:
             continue
-    return AgentOutput(
+    out = AgentOutput(
         agent_name=agent_name,
         round_number=round_number,
         main_assessment=str(data.get("main_assessment") or "")[:1500],
@@ -602,6 +670,7 @@ def _to_agent_output(agent_name: str, round_number: int, data: Dict[str, Any]) -
             data.get("position_changed_from_previous_round")
         ),
     )
+    return apply_citations_to_output(out, data)
 
 
 def _domain_fallback(agent_name: str, round_number: int) -> Dict[str, Any]:
@@ -626,4 +695,8 @@ def _domain_fallback(agent_name: str, round_number: int) -> Dict[str, Any]:
         "agreements": [],
         "disagreements": [],
         "position_changed_from_previous_round": False,
+        "sources_used": [],
+        "grounding_notes": [],
+        "rag_influence": "not_used",
+        "rag_influence_explanation": "",
     }

@@ -24,16 +24,20 @@ def main() -> int:
 
     result = ingest_knowledge_base(args.kb_dir, args.out)
     print(
-        "Ingested {n} chunks from {f} files -> {p}".format(
+        "Ingested {n} chunks from {f} files ({pdf} PDF, {txt} text) -> {p}".format(
             n=result.chunk_count,
             f=result.files_processed,
+            pdf=result.pdf_files,
+            txt=result.text_files,
             p=result.output_path,
         )
     )
+    if result.skipped_files:
+        print("Skipped {n} file(s) with no extractable text.".format(n=result.skipped_files))
     if result.chunk_count == 0:
         print(
-            "Knowledge base is empty. The app will still run; "
-            "drop .md/.txt files into knowledge_base/ and re-run this script."
+            "Knowledge base is empty or unreadable. The app will still run; "
+            "drop .md/.txt/.pdf files into knowledge_base/ and re-run this script."
         )
     return 0
 
