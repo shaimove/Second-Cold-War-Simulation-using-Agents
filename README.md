@@ -1,4 +1,4 @@
-# Cold War Scenario Simulator
+# Cold War Scenario Simulator using Agentic System
 
 A local multi-agent AI application that generates a five-year (2026–2031)
 plausible USA–China rivalry scenario from a single seed sentence. Built as a
