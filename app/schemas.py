@@ -337,6 +337,66 @@ class ScenarioRequest(BaseModel):
         return v
 
 
+JUDGE_DIMENSION_NAMES = (
+    "seed_fidelity",
+    "plausibility",
+    "specialist_diversity",
+    "disagreement_preservation",
+    "timeline_usefulness",
+)
+
+FAILURE_MODE_VALUES = (
+    "false_consensus",
+    "seed_drift",
+    "economic_monoculture",
+    "weak_red_team",
+    "generic_cold_war",
+    "overconfident_timeline",
+    "ignored_hypothetical_seed",
+)
+
+
+class GateCheck(BaseModel):
+    """One deterministic quality gate (G1–G6)."""
+
+    id: str
+    label: str
+    status: str = "pass"  # pass | warn | fail
+    detail: str = ""
+
+
+class GateReport(BaseModel):
+    passed: bool = True
+    blockers: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    checks: List[GateCheck] = Field(default_factory=list)
+
+
+class JudgeDimension(BaseModel):
+    name: str
+    score: int = Field(default=3, ge=1, le=5)
+    rationale: str = ""
+
+
+class JudgeVerdict(BaseModel):
+    overall_score: float = Field(default=3.0, ge=1.0, le=5.0)
+    pass_quality_bar: bool = False
+    dimensions: List[JudgeDimension] = Field(default_factory=list)
+    failure_modes: List[str] = Field(default_factory=list)
+    one_line_verdict: str = ""
+    summary_paragraph: str = ""
+
+
+class MonitorResult(BaseModel):
+    gates: GateReport = Field(default_factory=GateReport)
+    judge: Optional[JudgeVerdict] = None
+    judge_skipped: bool = False
+    judge_skip_reason: str = ""
+    judge_error: Optional[str] = None
+    judged_at: str = ""
+    judge_model: str = ""
+
+
 class FinalScenario(BaseModel):
     """Public-facing output returned to the frontend and saved to DB."""
 
@@ -355,6 +415,7 @@ class FinalScenario(BaseModel):
     image_prompt: str = ""
     image: ImageResult = Field(default_factory=ImageResult)
     run_metrics: RunMetrics = Field(default_factory=RunMetrics)
+    monitor: Optional[MonitorResult] = None
 
 
 class SavedRunSummary(BaseModel):

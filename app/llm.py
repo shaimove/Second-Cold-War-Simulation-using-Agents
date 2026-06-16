@@ -23,6 +23,18 @@ from . import db
 from .utils import estimate_tokens, extract_json, stable_hash, truncate
 
 
+# Agents that use OPENAI_ORCHESTRATOR_MODEL (stronger model for synthesis).
+ORCHESTRATOR_AGENT_NAMES = frozenset(
+    {
+        "orchestrator_summary",
+        "orchestrator_final",
+        "orchestrator_json_repair",
+    }
+)
+
+JUDGE_AGENT_NAMES = frozenset({"quality_judge"})
+
+
 @dataclass
 class LLMMetrics:
     llm_calls: int = 0
@@ -75,7 +87,12 @@ class LLMClient:
         if self.config.mock_mode:
             text = _mock_text(agent_name, user_prompt)
         else:
-            text = self._call_openai_text(system_prompt, user_prompt, temperature)
+            text = self._call_openai_text(
+                system_prompt,
+                user_prompt,
+                temperature,
+                model=self._resolve_model(agent_name),
+            )
 
         self.metrics.record_call(
             agent_name,
@@ -84,7 +101,12 @@ class LLMClient:
         )
 
         if self.config.use_llm_cache:
-            db.cache_set(cache_key, self.config.openai_model, agent_name, {"text": text})
+            db.cache_set(
+                cache_key,
+                self._resolve_model(agent_name),
+                agent_name,
+                {"text": text},
+            )
         return text
 
     def call_llm_json(
@@ -116,6 +138,7 @@ class LLMClient:
                 user_prompt,
                 temperature,
                 force_json=True,
+                model=self._resolve_model(agent_name),
             )
             data = extract_json(raw)
             if data is None:
@@ -129,10 +152,22 @@ class LLMClient:
         )
 
         if self.config.use_llm_cache:
-            db.cache_set(cache_key, self.config.openai_model, agent_name, {"json": data})
+            db.cache_set(
+                cache_key,
+                self._resolve_model(agent_name),
+                agent_name,
+                {"json": data},
+            )
         return data
 
     # -- Internals ----------------------------------------------------------
+
+    def _resolve_model(self, agent_name: str) -> str:
+        if agent_name in JUDGE_AGENT_NAMES:
+            return self.config.openai_judge_model
+        if agent_name in ORCHESTRATOR_AGENT_NAMES:
+            return self.config.openai_orchestrator_model
+        return self.config.openai_model
 
     def _cache_key(
         self,
@@ -143,7 +178,7 @@ class LLMClient:
         cache_context: Optional[Dict[str, Any]],
     ) -> str:
         return stable_hash(
-            self.config.openai_model,
+            self._resolve_model(agent_name),
             agent_name,
             round_number,
             system_prompt,
@@ -166,13 +201,15 @@ class LLMClient:
         temperature: float,
         force_json: bool = False,
         max_retries: int = 2,
+        model: Optional[str] = None,
     ) -> str:
+        model = model or self.config.openai_model
         last_err: Optional[Exception] = None
         for attempt in range(max_retries + 1):
             try:
                 client = self._get_client()
                 kwargs: Dict[str, Any] = {
-                    "model": self.config.openai_model,
+                    "model": model,
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
@@ -325,6 +362,48 @@ def _mock_json(
             "key_assumptions": ["Repaired output"],
             "main_disagreements": ["Repair agent restored schema"],
             "image_prompt": _MOCK_IMAGE_PROMPT,
+        }
+
+    if schema_name == "judge_verdict" or agent_name == "quality_judge":
+        return {
+            "overall_score": 4.0,
+            "dimensions": [
+                {
+                    "name": "seed_fidelity",
+                    "score": 4,
+                    "rationale": "Mock: seed reflected in summary.",
+                },
+                {
+                    "name": "plausibility",
+                    "score": 4,
+                    "rationale": "Mock: framed as plausible scenario.",
+                },
+                {
+                    "name": "specialist_diversity",
+                    "score": 3,
+                    "rationale": "Mock: agents moderately distinct.",
+                },
+                {
+                    "name": "disagreement_preservation",
+                    "score": 4,
+                    "rationale": "Mock: disagreements listed.",
+                },
+                {
+                    "name": "timeline_usefulness",
+                    "score": 4,
+                    "rationale": "Mock: timeline spans 2026-2031.",
+                },
+            ],
+            "failure_modes": [],
+            "one_line_verdict": "Mock judge: acceptable quality for portfolio demo.",
+            "summary_paragraph": (
+                "This mock scenario meets basic structural expectations: the seed is "
+                "reflected in the title and summary, specialist agents offer distinct "
+                "angles, and disagreements are preserved rather than collapsed. The "
+                "timeline spans 2026–2031 with usable headlines. For a portfolio demo "
+                "the output is strategically readable, though a live judge would score "
+                "nuance and grounding more precisely."
+            ),
         }
 
     if schema_name == "final_synthesis" or agent_name == "orchestrator_final":

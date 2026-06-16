@@ -1,4 +1,4 @@
-from app.llm import LLMClient
+from app.llm import LLMClient, ORCHESTRATOR_AGENT_NAMES
 
 
 def test_mock_text_runs_without_api_key():
@@ -33,6 +33,34 @@ def test_cache_key_is_stable():
     k3 = llm._cache_key("a", 2, "s", "u", {"x": 1})
     assert k1 == k2
     assert k1 != k3
+
+
+def test_orchestrator_agents_use_orchestrator_model(monkeypatch):
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
+    monkeypatch.setenv("OPENAI_ORCHESTRATOR_MODEL", "gpt-5.4")
+    monkeypatch.setenv("OPENAI_JUDGE_MODEL", "gpt-5.4-judge")
+    from app import config as cfg_mod
+
+    cfg_mod.CONFIG = cfg_mod.load_config()
+    llm = LLMClient(config=cfg_mod.CONFIG)
+    assert llm._resolve_model("geo_strategy") == "gpt-5.4-mini"
+    assert llm._resolve_model("quality_judge") == "gpt-5.4-judge"
+    assert llm._resolve_model("orchestrator_final") == "gpt-5.4"
+    assert llm._resolve_model("orchestrator_summary") == "gpt-5.4"
+    assert llm._resolve_model("orchestrator_json_repair") == "gpt-5.4"
+    assert "orchestrator_final" in ORCHESTRATOR_AGENT_NAMES
+
+
+def test_cache_key_differs_by_model_for_orchestrator(monkeypatch):
+    monkeypatch.setenv("OPENAI_MODEL", "gpt-5.4-mini")
+    monkeypatch.setenv("OPENAI_ORCHESTRATOR_MODEL", "gpt-5.4")
+    from app import config as cfg_mod
+
+    cfg_mod.CONFIG = cfg_mod.load_config()
+    llm = LLMClient(config=cfg_mod.CONFIG)
+    k_domain = llm._cache_key("geo_strategy", 1, "s", "u", {})
+    k_orch = llm._cache_key("orchestrator_final", 1, "s", "u", {})
+    assert k_domain != k_orch
 
 
 def test_extract_json_fallback_on_invalid():

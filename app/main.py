@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config as _config_mod
 from . import db
 from .graph import run_graph
+from .monitor.service import finalize_run_payload, judge_saved_run
 from .rag import ingest_knowledge_base
 from .schemas import ScenarioRequest, SavedRunSummary
 
@@ -71,12 +72,15 @@ def get_config() -> Dict[str, Any]:
     cfg = _config_mod.CONFIG
     return {
         "model": cfg.openai_model,
+        "orchestrator_model": cfg.openai_orchestrator_model,
         "image_model": cfg.openai_image_model,
         "mock_mode": cfg.mock_mode,
         "use_rag": cfg.use_rag,
         "use_llm_cache": cfg.use_llm_cache,
         "enable_image_generation": cfg.enable_image_generation,
         "max_agent_discussion_rounds": cfg.max_agent_discussion_rounds,
+        "judge_model": cfg.openai_judge_model,
+        "enable_run_judge": cfg.enable_run_judge,
     }
 
 
@@ -85,7 +89,7 @@ def run_scenario(req: ScenarioRequest) -> Dict[str, Any]:
     if not req.seed or not req.seed.strip():
         raise HTTPException(status_code=400, detail="seed must not be empty")
     final = run_graph(seed=req.seed.strip(), scenario_mode=req.scenario_mode)
-    return final.model_dump()
+    return finalize_run_payload(final.model_dump())
 
 
 @app.get("/api/runs")
@@ -100,6 +104,15 @@ def get_run(run_id: str) -> JSONResponse:
     if payload is None:
         raise HTTPException(status_code=404, detail="run not found")
     return JSONResponse(payload)
+
+
+@app.post("/api/runs/{run_id}/judge")
+def judge_run(run_id: str) -> Dict[str, Any]:
+    """Run hard gates + LLM quality judge on a saved run."""
+    updated = judge_saved_run(run_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return updated
 
 
 @app.post("/api/ingest")

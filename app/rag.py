@@ -225,7 +225,7 @@ def _normalize_chunk_dict(raw: Dict[str, Any], index: int = 0) -> Dict[str, Any]
     text = str(raw.get("text") or "")
     path = str(raw.get("source_path") or "")
     chunk_id = str(raw.get("chunk_id") or raw.get("id") or f"kb_{index:06d}")
-    domain = raw.get("domain") or "general"
+    domain = raw.get("domain")
     if domain in ("economy", "security", "historical", "ideology", "strategy"):
         domain = {
             "economy": "economy_technology",
@@ -234,7 +234,7 @@ def _normalize_chunk_dict(raw: Dict[str, Any], index: int = 0) -> Dict[str, Any]
             "ideology": "domestic_ideology",
             "strategy": "geo_strategy",
         }.get(domain, domain)
-    if domain not in VALID_DOMAINS:
+    if not domain or domain in ("general", "unknown") or domain not in VALID_DOMAINS:
         domain = _infer_domain(path, text)
     return {
         "chunk_id": chunk_id,

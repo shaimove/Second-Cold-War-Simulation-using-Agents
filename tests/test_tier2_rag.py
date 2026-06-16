@@ -272,6 +272,26 @@ def test_graph_tier2_flow_mock_mode():
     assert "evidence_rag" in final.run_metrics.agents_used
 
 
+def test_load_chunks_reinfers_domain_from_text(tmp_path):
+    out = tmp_path / "chunks.json"
+    import json
+
+    with open(out, "w", encoding="utf-8") as fh:
+        json.dump(
+            [
+                {
+                    "chunk_id": "kb_000001",
+                    "source_path": "book.pdf",
+                    "domain": "general",
+                    "text": "Taiwan deterrence and crisis escalation in the strait.",
+                }
+            ],
+            fh,
+        )
+    loaded = rag.load_chunks(str(out))
+    assert loaded[0]["domain"] == "security_taiwan"
+
+
 def test_round3_no_extra_agent_retrieval(monkeypatch, kb_with_samples):
     """Round 1 agent retrieval only; round 3 should not call retrieve_for_agent."""
     calls = []

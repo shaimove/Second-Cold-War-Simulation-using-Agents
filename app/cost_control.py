@@ -44,14 +44,32 @@ def compact_evidence_for_agents(
     return truncate(" | ".join(parts), max_chars)
 
 
-def compact_agent_position(output: AgentOutput, max_chars: int = 350) -> str:
-    """One-line position summary for the next round's prompt."""
-    pieces = [output.main_assessment]
+def compact_agent_position(
+    output: AgentOutput,
+    max_chars: Optional[int] = None,
+) -> str:
+    """Digest of the agent's prior-round position for the next prompt."""
+    max_chars = max_chars if max_chars is not None else _config_mod.CONFIG.self_position_max_chars
+    parts: List[str] = []
+    if output.main_assessment:
+        parts.append("Assessment: " + truncate(output.main_assessment, 450))
     if output.key_drivers:
-        pieces.append("Drivers: " + "; ".join(output.key_drivers[:3]))
+        parts.append("Drivers: " + "; ".join(output.key_drivers[:5]))
+    if output.timeline_contributions:
+        timeline = "; ".join(
+            "{y}: {e}".format(y=tc.year, e=truncate(tc.event, 100))
+            for tc in output.timeline_contributions[:4]
+        )
+        parts.append("Timeline: " + timeline)
+    if output.uncertainties:
+        parts.append("Uncertainties: " + "; ".join(output.uncertainties[:3]))
     if output.disagreements:
-        pieces.append("Disagrees on: " + "; ".join(output.disagreements[:2]))
-    return truncate(" / ".join(p for p in pieces if p), max_chars)
+        parts.append("Disagrees on: " + "; ".join(output.disagreements[:3]))
+    if output.risks:
+        parts.append("Risks: " + "; ".join(output.risks[:2]))
+    if output.position_changed_from_previous_round:
+        parts.append("Position changed: yes")
+    return truncate("\n".join(parts), max_chars)
 
 
 def build_discussion_summary(
@@ -70,7 +88,7 @@ def build_discussion_summary(
     positions: Dict[str, str] = {}
 
     for name, out in latest_outputs.items():
-        positions[name] = compact_agent_position(out)
+        positions[name] = compact_agent_position(out, max_chars=350)
         agreements.extend(out.agreements[:2])
         disagreements.extend(out.disagreements[:2])
         uncertainties.extend(out.uncertainties[:2])

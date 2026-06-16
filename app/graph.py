@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 from . import agents as agent_mod
 from . import config as _config_mod
 from . import db
-from .cost_control import compact_agent_position, should_stop_early
+from .cost_control import should_stop_early
 from .final_output_validation import resolve_orchestrator_synthesis
 from .image_generation import build_image_prompt, generate_image
 from .llm import LLMClient
@@ -27,9 +27,12 @@ from .rag import (
     build_final_evidence_packet,
     clear_retrieval_cache,
     retrieve_baseline,
-    retrieve_for_agent,
     retrieve_for_disagreement,
     retrieve_for_red_team,
+)
+from .parallel_agents import (
+    _run_domain_agents_sequential_fallback as _run_domain_agents_sequential,
+    run_domain_agents_parallel,
 )
 from .rag_citations import build_agent_evidence_packet, register_chunks
 from .schemas import (
@@ -90,48 +93,19 @@ def _run_discussion_round(
         state.disagreement_chunks if round_number >= 2 else []
     )
 
-    latest_outputs: Dict[str, AgentOutput] = {}
-    for agent_name in DOMAIN_AGENTS:
-        prev_self = None
-        history = state.agent_outputs.get(agent_name) or []
-        if history:
-            prev_self = compact_agent_position(history[-1])
-
-        agent_chunks: List = []
-        if round_number == 1 and _config_mod.CONFIG.use_rag:
-            agent_chunks = retrieve_for_agent(
-                state.seed,
-                state.scenario_mode,
-                agent_name,
-                round_number=1,
-                recorder=recorder,
-            )
-            register_chunks(state.chunks_used_registry, agent_chunks)
-
-        packet, allowed_ids = build_agent_evidence_packet(
-            agent_name,
-            state.evidence_lanes,
-            agent_chunks,
-            disagreement_chunks=disagreement_chunks,
-            round_number=round_number,
+    if _config_mod.CONFIG.parallel_domain_agents:
+        latest_outputs = run_domain_agents_parallel(
+            state,
+            llm,
+            round_number,
+            recorder,
+            prev_summary,
+            disagreement_chunks,
         )
-        register_chunks(state.chunks_used_registry, agent_chunks)
-        register_chunks(state.chunks_used_registry, disagreement_chunks)
-
-        output = agent_mod.run_domain_agent(
-            llm=llm,
-            agent_name=agent_name,
-            seed=state.seed,
-            scenario_mode=state.scenario_mode,
-            evidence_packet=packet,
-            round_number=round_number,
-            previous_summary=prev_summary,
-            previous_self_position=prev_self,
-            allowed_chunk_ids=allowed_ids,
-            rag_recorder=recorder,
+    else:
+        latest_outputs = _run_domain_agents_sequential(
+            state, llm, round_number, recorder, prev_summary, disagreement_chunks
         )
-        state.agent_outputs.setdefault(agent_name, []).append(output)
-        latest_outputs[agent_name] = output
 
     state.run_metrics.discussion_rounds_completed = round_number
     state._latest_round_outputs = latest_outputs  # type: ignore[attr-defined]

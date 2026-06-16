@@ -41,9 +41,13 @@ def test_run_scenario_returns_valid_json_in_mock_mode():
         "discussion_summary",
         "run_metrics",
         "image",
+        "monitor",
     ):
         assert key in body
     assert len(body["timeline"]) == 6
+    monitor = body["monitor"]
+    assert monitor["gates"]["passed"] is True
+    assert len(monitor["gates"]["checks"]) == 6
 
 
 def test_run_scenario_rejects_empty_seed():

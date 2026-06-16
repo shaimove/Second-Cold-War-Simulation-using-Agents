@@ -31,7 +31,10 @@
       const cfg = await r.json();
       const pill = $("#modelPill");
       const mode = cfg.mock_mode ? "MOCK" : "LIVE";
-      pill.textContent = "model: " + cfg.model + " · " + mode;
+      var orch = cfg.orchestrator_model && cfg.orchestrator_model !== cfg.model
+        ? " · orch: " + cfg.orchestrator_model
+        : "";
+      pill.textContent = "model: " + cfg.model + orch + " · " + mode;
     } catch (e) { /* ignore */ }
   }
 
@@ -80,7 +83,10 @@
       .replace(/'/g, "&#39;");
   }
 
+  let currentRunId = null;
+
   function renderResult(data) {
+    currentRunId = data.run_id || null;
     $("#empty").classList.add("hidden");
     $("#result").classList.remove("hidden");
 
@@ -98,6 +104,175 @@
     renderList("#redTeam", data.red_team_warnings || []);
     renderImage(data.image || {}, data.image_prompt || "", data.run_id);
     renderMetrics(data.run_metrics || {});
+    renderMonitor(data.monitor || null, data.run_metrics || {});
+  }
+
+  const GATE_STATUS_ICON = { pass: "✓", warn: "!", fail: "✗" };
+
+  function renderGateChecks(checks) {
+    if (!checks || !checks.length) return "";
+    let html = '<div class="gate-grid">';
+    checks.forEach((c) => {
+      const st = c.status || "pass";
+      html +=
+        '<div class="gate-card gate-' + escapeHtml(st) + '">' +
+        '<div class="gate-id">' + escapeHtml(c.id || "") + "</div>" +
+        '<div class="gate-label">' + escapeHtml(c.label || "") + "</div>" +
+        '<div class="gate-status">' + escapeHtml(GATE_STATUS_ICON[st] || "?") +
+        " " + escapeHtml(st.toUpperCase()) + "</div>" +
+        '<div class="gate-detail muted small">' + escapeHtml(c.detail || "") + "</div>" +
+        "</div>";
+    });
+    html += "</div>";
+    return html;
+  }
+
+  function renderPipelineHealth(metrics) {
+    if (!metrics || !Object.keys(metrics).length) return "";
+    const rows = [
+      ["Synthesis validated", metrics.synthesis_validation_passed === true ? "yes" : (metrics.synthesis_validation_passed === false ? "no" : "—")],
+      ["Synthesis fallback", metrics.synthesis_used_fallback ? "yes" : "no"],
+      ["Repair attempts", metrics.synthesis_repair_attempts != null ? metrics.synthesis_repair_attempts : "0"],
+      ["Discussion rounds", metrics.discussion_rounds_completed != null ? metrics.discussion_rounds_completed : "—"],
+      ["Citation warnings", (metrics.citation_warnings || []).length],
+      ["Unique RAG chunks", metrics.unique_chunks_used != null ? metrics.unique_chunks_used : "—"],
+    ];
+    let html = '<div class="monitor-pipeline"><h4>Pipeline health</h4><div class="pipeline-grid">';
+    rows.forEach(([k, v]) => {
+      html +=
+        '<div class="pipeline-metric">' +
+        '<span class="k">' + escapeHtml(k) + "</span>" +
+        '<span class="v">' + escapeHtml(String(v)) + "</span></div>";
+    });
+    html += "</div></div>";
+    return html;
+  }
+
+  function renderMonitor(monitor, runMetrics) {
+    const root = $("#monitor");
+    const btn = $("#judgeRun");
+    if (!root) return;
+    if (!currentRunId) {
+      if (btn) btn.disabled = true;
+      root.innerHTML = '<p class="muted">Run a simulation first.</p>';
+      return;
+    }
+    if (btn) btn.disabled = false;
+
+    if (!monitor) {
+      root.innerHTML =
+        '<p class="muted">No monitor data on this run. Click <strong>Run judge</strong> to evaluate (1 LLM call).</p>' +
+        renderPipelineHealth(runMetrics);
+      return;
+    }
+
+    const gates = monitor.gates || {};
+    const checks = gates.checks || [];
+    const passCount = checks.filter((c) => c.status === "pass").length;
+    const warnCount = checks.filter((c) => c.status === "warn").length;
+    const failCount = checks.filter((c) => c.status === "fail").length;
+    const totalChecks = checks.length || 6;
+
+    let html = '<div class="monitor-summary-row">';
+    if (gates.passed) {
+      html += '<span class="monitor-badge monitor-pass">Gates passed</span>';
+    } else {
+      html += '<span class="monitor-badge monitor-fail">Gates failed</span>';
+    }
+    if (checks.length) {
+      html +=
+        '<span class="monitor-counts">' +
+        escapeHtml(String(passCount)) + " passed · " +
+        escapeHtml(String(warnCount)) + " warn · " +
+        escapeHtml(String(failCount)) + " fail · " +
+        escapeHtml(String(totalChecks)) + " total</span>";
+    }
+    html += "</div>";
+
+    html += renderGateChecks(checks);
+    html += renderPipelineHealth(runMetrics);
+
+    const j = monitor.judge;
+    if (j) {
+      const passCls = j.pass_quality_bar ? "monitor-pass" : "monitor-fail";
+      const passLbl = j.pass_quality_bar ? "PASS" : "BELOW BAR";
+      html += '<div class="monitor-judge-block">';
+      html += "<h4>LLM-as-judge</h4>";
+      html += '<div class="monitor-score ' + passCls + '">' +
+        escapeHtml(String(j.overall_score)) + ' / 5 <span class="monitor-bar-label">(' +
+        passLbl + ")</span></div>";
+      if (j.summary_paragraph) {
+        html += '<p class="monitor-paragraph">' + escapeHtml(j.summary_paragraph) + "</p>";
+      } else if (j.one_line_verdict) {
+        html += '<p class="monitor-paragraph"><em>' + escapeHtml(j.one_line_verdict) + "</em></p>";
+      }
+      if (j.one_line_verdict && j.summary_paragraph) {
+        html += '<p class="muted small monitor-oneliner"><strong>One line:</strong> ' +
+          escapeHtml(j.one_line_verdict) + "</p>";
+      }
+      html += '<div class="monitor-dim">';
+      (j.dimensions || []).forEach((d) => {
+        html +=
+          '<div class="monitor-dim-row">' +
+          '<div class="dim-head">' +
+          '<span class="name">' + escapeHtml((d.name || "").replace(/_/g, " ")) + "</span>" +
+          '<span class="score">' + escapeHtml(String(d.score)) + "/5</span></div>";
+        if (d.rationale) {
+          html += '<div class="dim-rationale muted small">' + escapeHtml(d.rationale) + "</div>";
+        }
+        html += "</div>";
+      });
+      html += "</div>";
+      if (j.failure_modes && j.failure_modes.length) {
+        html += '<div class="monitor-tags">';
+        j.failure_modes.forEach((fm) => {
+          html += '<span class="monitor-tag">' + escapeHtml(fm.replace(/_/g, " ")) + "</span>";
+        });
+        html += "</div>";
+      }
+      html += "</div>";
+    } else if (monitor.judge_skipped || monitor.judge_error) {
+      html += '<div class="monitor-judge-pending">';
+      html += "<h4>LLM-as-judge</h4>";
+      const reason = monitor.judge_error || monitor.judge_skip_reason || "Not run yet.";
+      if (reason.indexOf("Gates only") >= 0) {
+        html += '<p class="muted">Gates computed automatically. Click <strong>Run judge</strong> for a one-paragraph LLM assessment (1 API call).</p>';
+      } else if (monitor.judge_error) {
+        html += '<p class="monitor-warn">' + escapeHtml(reason) + "</p>";
+      } else {
+        html += '<p class="muted">' + escapeHtml(reason) + "</p>";
+        if ((gates.blockers || []).length) {
+          html += '<p class="muted small">Fix blockers above before judging, or judge will stay skipped.</p>';
+        }
+      }
+      html += "</div>";
+    }
+
+    if (monitor.judged_at && j) {
+      html += '<p class="muted small">Judged ' + escapeHtml(monitor.judged_at) +
+        (monitor.judge_model ? " · " + escapeHtml(monitor.judge_model) : "") + "</p>";
+    }
+    root.innerHTML = html;
+  }
+
+  async function runJudge() {
+    if (!currentRunId) return;
+    const btn = $("#judgeRun");
+    btn.disabled = true;
+    $("#status").textContent = "Running quality judge...";
+    try {
+      const r = await fetch("/api/runs/" + encodeURIComponent(currentRunId) + "/judge", {
+        method: "POST",
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      renderMonitor(data.monitor || null, data.run_metrics || {});
+      $("#status").textContent = "Judge complete for " + currentRunId + ".";
+    } catch (e) {
+      $("#status").textContent = "Judge error: " + e.message;
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function renderTimeline(timeline) {
@@ -325,6 +500,8 @@
   function init() {
     wireExamples();
     $("#run").addEventListener("click", runScenario);
+    const judgeBtn = $("#judgeRun");
+    if (judgeBtn) judgeBtn.addEventListener("click", runJudge);
     loadConfig();
     loadSavedRuns();
   }

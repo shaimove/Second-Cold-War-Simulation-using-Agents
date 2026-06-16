@@ -37,16 +37,21 @@ def _get_int(name: str, default: int) -> int:
 class Config:
     openai_api_key: Optional[str]
     openai_model: str
+    openai_orchestrator_model: str
+    openai_judge_model: str
     openai_image_model: str
 
     use_rag: bool
     use_llm_cache: bool
     enable_image_generation: bool
+    enable_run_judge: bool
+    parallel_domain_agents: bool
 
     max_agent_discussion_rounds: int
     max_retrieved_docs: int
     max_agent_input_chars: int
     max_evidence_chars: int
+    self_position_max_chars: int
 
     sqlite_path: str
     rag_chunks_path: str
@@ -62,14 +67,24 @@ def load_config() -> Config:
     return Config(
         openai_api_key=os.getenv("OPENAI_API_KEY") or None,
         openai_model=os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
+        openai_orchestrator_model=os.getenv(
+            "OPENAI_ORCHESTRATOR_MODEL", "gpt-5.4"
+        ),
+        openai_judge_model=os.getenv(
+            "OPENAI_JUDGE_MODEL",
+            os.getenv("OPENAI_ORCHESTRATOR_MODEL", "gpt-5.4"),
+        ),
         openai_image_model=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2"),
         use_rag=_get_bool("USE_RAG", True),
         use_llm_cache=_get_bool("USE_LLM_CACHE", True),
         enable_image_generation=_get_bool("ENABLE_IMAGE_GENERATION", True),
+        enable_run_judge=_get_bool("ENABLE_RUN_JUDGE", False),
+        parallel_domain_agents=_get_bool("PARALLEL_DOMAIN_AGENTS", True),
         max_agent_discussion_rounds=_get_int("MAX_AGENT_DISCUSSION_ROUNDS", 3),
         max_retrieved_docs=_get_int("MAX_RETRIEVED_DOCS", 5),
         max_agent_input_chars=_get_int("MAX_AGENT_INPUT_CHARS", 6000),
         max_evidence_chars=_get_int("MAX_EVIDENCE_CHARS", 2500),
+        self_position_max_chars=_get_int("SELF_POSITION_MAX_CHARS", 1000),
         sqlite_path=os.getenv("SQLITE_PATH", "data/scenarios.sqlite"),
         rag_chunks_path=os.getenv("RAG_CHUNKS_PATH", "data/rag_chunks.json"),
         generated_images_dir=os.getenv(

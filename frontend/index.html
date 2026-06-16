@@ -82,6 +82,16 @@
         </header>
         <p id="scenarioSummary" class="summary"></p>
 
+        <section class="panel monitor-panel">
+          <div class="monitor-header">
+            <h3>Quality monitor</h3>
+            <button id="judgeRun" class="secondary" type="button" title="LLM-as-judge (1 API call)">Run judge</button>
+          </div>
+          <div id="monitor" class="monitor-box">
+            <p class="muted">Gates run automatically after each simulation. Click <strong>Run judge</strong> for the LLM assessment.</p>
+          </div>
+        </section>
+
         <section class="panel">
           <h3>Timeline 2026&ndash;2031</h3>
           <div id="timeline" class="timeline"></div>

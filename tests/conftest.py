@@ -27,8 +27,10 @@ def _isolated_env(monkeypatch, tmp_path):
     monkeypatch.setenv("USE_RAG", "true")
     monkeypatch.setenv("USE_LLM_CACHE", "true")
     monkeypatch.setenv("ENABLE_IMAGE_GENERATION", "true")
+    monkeypatch.setenv("PARALLEL_DOMAIN_AGENTS", "true")
     monkeypatch.setenv("MAX_AGENT_DISCUSSION_ROUNDS", "3")
     monkeypatch.setenv("MAX_RETRIEVED_DOCS", "3")
+    monkeypatch.setenv("SELF_POSITION_MAX_CHARS", "1000")
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "test.sqlite"))
     monkeypatch.setenv(
         "RAG_CHUNKS_PATH", str(tmp_path / "rag_chunks.json")

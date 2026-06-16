@@ -13,11 +13,14 @@ unit-tested production-style Python**.
 
 
 **See a real example run** (rendered exactly like the live dashboard, no setup required):
-[examples/example_scenario.html](https://htmlpreview.github.io/?https://github.com/shaimove/second_cold_war/blob/main/examples/example_scenario.html)
+[examples/example_scenario.html](https://htmlpreview.github.io/?https://github.com/shaimove/Second-Cold-War-Simulation-using-Agents/blob/main/examples/example_scenario.html)
 
 **Understand the code pipeline:** [docs/PIPELINE.md](docs/PIPELINE.md)  
 **Deep dive (file + line + function per step):** [docs/PIPELINE_CODE_WALKTHROUGH.md](docs/PIPELINE_CODE_WALKTHROUGH.md)  
-**Interview algo spec (design, prompts, tuning):** [docs/ALGO_SPEC.md](docs/ALGO_SPEC.md)
+**Interview algo spec (design, prompts, tuning):** [docs/ALGO_SPEC.md](docs/ALGO_SPEC.md)  
+**Quality monitor MVP (gates + LLM judge):** [docs/MONITOR.md](docs/MONITOR.md)  
+**Full evaluation reference:** [docs/EVALUATION.md](docs/EVALUATION.md)  
+**Interview story (architecture, agents, cost, fallbacks):** [docs/INTERVIEW.md](docs/INTERVIEW.md)
 
 ---
 
@@ -151,6 +154,15 @@ are stripped and recorded in `run_metrics.citation_warnings`. Tune behavior
 via `app/rag_config.py` or env vars such as `RAG_AGENT_ROUND1_FINAL_K`,
 `RAG_ENABLE_AGENT_RAG`, `RAG_MAX_FINAL_EVIDENCE_ITEMS`.
 
+After changing PDFs or metadata rules, **re-run** `python scripts/ingest_docs.py`
+so chunk `domain` tags are refreshed (load-time inference also applies).
+
+### Parallel domain agents
+
+Within each discussion round, the five domain agents run **concurrently**
+via LangChain `RunnableParallel` (`app/parallel_agents.py`). Set
+`PARALLEL_DOMAIN_AGENTS=false` in `.env` to fall back to sequential calls.
+
 ---
 
 ## Image generation
@@ -207,8 +219,9 @@ Convenience wrapper: `bash run_local.sh`.
 
 ```
 OPENAI_API_KEY=                 # empty = mock mode
-OPENAI_MODEL=gpt-5.4-mini       # text model
-OPENAI_IMAGE_MODEL=gpt-image-2  # image model
+OPENAI_MODEL=gpt-5.4-mini             # domain agents, evidence, red-team
+OPENAI_ORCHESTRATOR_MODEL=gpt-5.4   # round summaries + final synthesis + JSON repair
+OPENAI_IMAGE_MODEL=gpt-image-2      # image model
 
 USE_RAG=true
 USE_LLM_CACHE=true

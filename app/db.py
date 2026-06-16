@@ -49,7 +49,7 @@ def _ensure_parent_dir(path: str) -> None:
 def connect(path: Optional[str] = None) -> Iterator[sqlite3.Connection]:
     db_path = path or _config_mod.CONFIG.sqlite_path
     _ensure_parent_dir(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
