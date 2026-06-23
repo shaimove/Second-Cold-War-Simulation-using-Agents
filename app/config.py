@@ -53,7 +53,9 @@ class Config:
     max_evidence_chars: int
     self_position_max_chars: int
 
+    enable_graph_checkpoints: bool
     sqlite_path: str
+    checkpoint_sqlite_path: str
     rag_chunks_path: str
     generated_images_dir: str
 
@@ -85,7 +87,11 @@ def load_config() -> Config:
         max_agent_input_chars=_get_int("MAX_AGENT_INPUT_CHARS", 6000),
         max_evidence_chars=_get_int("MAX_EVIDENCE_CHARS", 2500),
         self_position_max_chars=_get_int("SELF_POSITION_MAX_CHARS", 1000),
+        enable_graph_checkpoints=_get_bool("ENABLE_GRAPH_CHECKPOINTS", True),
         sqlite_path=os.getenv("SQLITE_PATH", "data/scenarios.sqlite"),
+        checkpoint_sqlite_path=os.getenv(
+            "CHECKPOINT_SQLITE_PATH", "data/checkpoints.sqlite"
+        ),
         rag_chunks_path=os.getenv("RAG_CHUNKS_PATH", "data/rag_chunks.json"),
         generated_images_dir=os.getenv(
             "GENERATED_IMAGES_DIR", "data/generated_images"

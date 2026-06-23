@@ -9,6 +9,7 @@ def test_load_config_defaults(monkeypatch):
     assert c.mock_mode is True
     assert c.max_agent_discussion_rounds >= 1
     assert c.self_position_max_chars == 1000
+    assert c.enable_graph_checkpoints is True
 
 
 def test_load_config_reads_bools_and_ints(monkeypatch):

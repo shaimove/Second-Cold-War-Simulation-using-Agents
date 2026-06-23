@@ -15,7 +15,8 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config as _config_mod
 from . import db
-from .graph import run_graph
+from .graph import run_graph, resume_graph
+from .checkpoints import get_checkpoint_status
 from .monitor.service import finalize_run_payload, judge_saved_run
 from .rag import ingest_knowledge_base
 from .schemas import ScenarioRequest, SavedRunSummary
@@ -81,6 +82,7 @@ def get_config() -> Dict[str, Any]:
         "max_agent_discussion_rounds": cfg.max_agent_discussion_rounds,
         "judge_model": cfg.openai_judge_model,
         "enable_run_judge": cfg.enable_run_judge,
+        "enable_graph_checkpoints": cfg.enable_graph_checkpoints,
     }
 
 
@@ -96,6 +98,25 @@ def run_scenario(req: ScenarioRequest) -> Dict[str, Any]:
 def list_runs() -> List[Dict[str, Any]]:
     rows = db.list_scenario_runs(limit=100)
     return [SavedRunSummary(**r).model_dump() for r in rows]
+
+
+@app.get("/api/runs/{run_id}/checkpoint")
+def get_run_checkpoint(run_id: str) -> Dict[str, Any]:
+    status = get_checkpoint_status(run_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="checkpoint not found")
+    return status
+
+
+@app.post("/api/runs/{run_id}/resume")
+def resume_run(run_id: str) -> Dict[str, Any]:
+    try:
+        final = resume_graph(run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return finalize_run_payload(final.model_dump())
 
 
 @app.get("/api/runs/{run_id}")

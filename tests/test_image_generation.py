@@ -39,7 +39,9 @@ def _make_config(**overrides):
         max_agent_input_chars=base.max_agent_input_chars,
         max_evidence_chars=base.max_evidence_chars,
         self_position_max_chars=base.self_position_max_chars,
+        enable_graph_checkpoints=base.enable_graph_checkpoints,
         sqlite_path=base.sqlite_path,
+        checkpoint_sqlite_path=base.checkpoint_sqlite_path,
         rag_chunks_path=base.rag_chunks_path,
         generated_images_dir=base.generated_images_dir,
     )

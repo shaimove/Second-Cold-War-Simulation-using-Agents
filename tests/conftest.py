@@ -38,6 +38,10 @@ def _isolated_env(monkeypatch, tmp_path):
     monkeypatch.setenv(
         "GENERATED_IMAGES_DIR", str(tmp_path / "generated_images")
     )
+    monkeypatch.setenv(
+        "CHECKPOINT_SQLITE_PATH", str(tmp_path / "checkpoints.sqlite")
+    )
+    monkeypatch.setenv("ENABLE_GRAPH_CHECKPOINTS", "true")
 
     # Rebuild config + db modules so they pick up the new env.
     from app import config as cfg_mod
@@ -45,6 +49,9 @@ def _isolated_env(monkeypatch, tmp_path):
 
     from app import db as db_mod
     db_mod.init_db()
+
+    from app.checkpoints import reset_checkpointer_cache
+    reset_checkpointer_cache()
 
     # Reset retrieval cache between tests.
     from app import rag as rag_mod

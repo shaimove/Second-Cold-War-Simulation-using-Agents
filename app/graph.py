@@ -44,7 +44,52 @@ from .schemas import (
     RunMetrics,
     ScenarioState,
 )
+from .checkpoints import (
+    get_active_llm,
+    get_checkpointer,
+    get_checkpoint_status,
+    graph_run_config,
+    reset_active_llm,
+    set_active_llm,
+)
 from .utils import new_run_id, truncate
+
+
+def _state_from_dict(state_dict: Dict[str, Any]) -> ScenarioState:
+    ss = ScenarioState(
+        **{k: v for k, v in state_dict.items() if not k.startswith("_")}
+    )
+    for key, val in state_dict.items():
+        if not key.startswith("_") or key == "_llm":
+            continue
+        if key == "_latest_round_outputs" and isinstance(val, dict):
+            setattr(
+                ss,
+                key,
+                {
+                    name: AgentOutput(**item) if isinstance(item, dict) else item
+                    for name, item in val.items()
+                },
+            )
+        else:
+            setattr(ss, key, val)
+    return ss
+
+
+def _state_to_dict(ss: ScenarioState) -> Dict[str, Any]:
+    out = ss.model_dump()
+    for key in ("_early_stopped", "_latest_round_outputs"):
+        if not hasattr(ss, key):
+            continue
+        val = getattr(ss, key)
+        if key == "_latest_round_outputs" and val:
+            out[key] = {
+                name: (item.model_dump() if isinstance(item, AgentOutput) else item)
+                for name, item in val.items()
+            }
+        else:
+            out[key] = val
+    return out
 
 
 def _rag_recorder(state: ScenarioState) -> RagMetricsRecorder:
@@ -385,7 +430,7 @@ NODES: List[tuple] = [
 ]
 
 
-def build_graph():
+def build_graph(checkpointer=None, **compile_kwargs):
     try:
         from langgraph.graph import StateGraph, END  # type: ignore
     except Exception:
@@ -395,20 +440,12 @@ def build_graph():
 
     def make_wrapper(fn: Callable, name: str):
         def _w(state_dict: Dict[str, Any]) -> Dict[str, Any]:
-            llm: LLMClient = state_dict["_llm"]
-            ss = ScenarioState(
-                **{k: v for k, v in state_dict.items() if not k.startswith("_")}
-            )
-            for k, v in state_dict.items():
-                if k.startswith("_") and k != "_llm":
-                    setattr(ss, k, v)
+            llm = get_active_llm()
+            if llm is None:
+                llm = LLMClient()
+            ss = _state_from_dict(state_dict)
             ss = fn(ss, llm)
-            out = ss.model_dump()
-            out["_llm"] = llm
-            for k in ("_early_stopped", "_latest_round_outputs"):
-                if hasattr(ss, k):
-                    out[k] = getattr(ss, k)
-            return out
+            return _state_to_dict(ss)
 
         _w.__name__ = name
         return _w
@@ -422,34 +459,16 @@ def build_graph():
             graph.add_edge(prev, name)
         prev = name
     graph.add_edge(prev, END)
-    return graph.compile()
+    if checkpointer is not None:
+        return graph.compile(checkpointer=checkpointer, **compile_kwargs)
+    return graph.compile(**compile_kwargs)
 
 
-def run_graph(
-    seed: str,
-    scenario_mode: str,
-    llm: Optional[LLMClient] = None,
+def _finalize_run(
+    state: ScenarioState,
+    llm: LLMClient,
+    start: float,
 ) -> FinalScenario:
-    llm = llm or LLMClient()
-    state = ScenarioState(run_id=new_run_id(), seed=seed, scenario_mode=scenario_mode)
-    state.run_metrics = RunMetrics()
-    start = time.time()
-
-    compiled = build_graph()
-    if compiled is not None:
-        try:
-            payload = state.model_dump()
-            payload["_llm"] = llm
-            result = compiled.invoke(payload)
-            state = ScenarioState(
-                **{k: v for k, v in result.items() if not k.startswith("_")}
-            )
-        except Exception as e:
-            state.errors.append("langgraph_failed: " + str(e))
-            state = _run_sequential(state, llm)
-    else:
-        state = _run_sequential(state, llm)
-
     state.run_metrics.elapsed_seconds = round(time.time() - start, 3)
     state.run_metrics.llm_calls = llm.metrics.llm_calls
     state.run_metrics.cache_hits = max(
@@ -471,6 +490,122 @@ def run_graph(
     except Exception as e:
         state.errors.append("save_failed_final: " + str(e))
     return final
+
+
+def _invoke_compiled_graph(
+    compiled,
+    *,
+    run_id: str,
+    seed: str,
+    scenario_mode: str,
+    llm: LLMClient,
+    resume: bool,
+) -> ScenarioState:
+    config = graph_run_config(run_id)
+    token = set_active_llm(llm)
+    try:
+        if resume:
+            snapshot = compiled.get_state(config)
+            if not snapshot.next:
+                values = snapshot.values or {}
+                return _state_from_dict(values)
+            result = compiled.invoke(None, config=config)
+        else:
+            state = ScenarioState(
+                run_id=run_id,
+                seed=seed,
+                scenario_mode=scenario_mode,
+            )
+            state.run_metrics = RunMetrics()
+            result = compiled.invoke(_state_to_dict(state), config=config)
+        return _state_from_dict(result)
+    finally:
+        reset_active_llm(token)
+
+
+def run_graph(
+    seed: str,
+    scenario_mode: str,
+    llm: Optional[LLMClient] = None,
+    *,
+    run_id: Optional[str] = None,
+    resume: bool = False,
+) -> FinalScenario:
+    llm = llm or LLMClient()
+    run_id = run_id or new_run_id()
+    start = time.time()
+
+    checkpointer = get_checkpointer()
+    compiled = build_graph(checkpointer=checkpointer)
+
+    if compiled is not None:
+        try:
+            if checkpointer is not None:
+                state = _invoke_compiled_graph(
+                    compiled,
+                    run_id=run_id,
+                    seed=seed.strip(),
+                    scenario_mode=scenario_mode,
+                    llm=llm,
+                    resume=resume,
+                )
+            elif resume:
+                raise RuntimeError("checkpointing_disabled")
+            else:
+                state = ScenarioState(
+                    run_id=run_id,
+                    seed=seed.strip(),
+                    scenario_mode=scenario_mode,
+                )
+                state.run_metrics = RunMetrics()
+                token = set_active_llm(llm)
+                try:
+                    result = compiled.invoke(_state_to_dict(state))
+                    state = _state_from_dict(result)
+                finally:
+                    reset_active_llm(token)
+        except Exception as e:
+            if resume:
+                raise
+            state = ScenarioState(
+                run_id=run_id,
+                seed=seed.strip(),
+                scenario_mode=scenario_mode,
+            )
+            state.run_metrics = RunMetrics()
+            state.errors.append("langgraph_failed: " + str(e))
+            state = _run_sequential(state, llm)
+    elif resume:
+        raise RuntimeError(
+            "Cannot resume run " + run_id + ": LangGraph checkpointing unavailable"
+        )
+    else:
+        state = ScenarioState(
+            run_id=run_id,
+            seed=seed.strip(),
+            scenario_mode=scenario_mode,
+        )
+        state.run_metrics = RunMetrics()
+        state = _run_sequential(state, llm)
+
+    return _finalize_run(state, llm, start)
+
+
+def resume_graph(run_id: str, llm: Optional[LLMClient] = None) -> FinalScenario:
+    """Continue an interrupted run from the last LangGraph checkpoint."""
+    status = get_checkpoint_status(run_id)
+    if status is None:
+        raise ValueError("No checkpoint found for run_id: " + run_id)
+    if not status.get("can_resume"):
+        raise ValueError("Run " + run_id + " is already complete")
+
+    return run_graph(
+        seed=str(status.get("seed") or ""),
+        scenario_mode=str(status.get("scenario_mode") or "base_case"),
+        llm=llm,
+        run_id=run_id,
+        resume=True,
+    )
 
 
 def _run_sequential(state: ScenarioState, llm: LLMClient) -> ScenarioState:
