@@ -1,4 +1,5 @@
 from app import agents as agent_mod
+from app import prompts as prompt_mod
 from app.llm import LLMClient
 from app.schemas import EvidenceSummary, DOMAIN_AGENTS
 
@@ -23,6 +24,7 @@ def test_each_domain_agent_returns_required_fields():
             agent_name=name,
             seed="seed",
             scenario_mode="base_case",
+            target_year=2026,
             evidence_blob="evidence",
             round_number=1,
             previous_summary=None,
@@ -30,12 +32,12 @@ def test_each_domain_agent_returns_required_fields():
         )
         assert out.agent_name == name
         assert out.main_assessment
-        # At least one timeline contribution must exist.
         assert out.timeline_contributions
+        assert out.timeline_contributions[0].year == 2026
 
 
 def test_security_agent_prompt_contains_safety_constraint():
-    text = agent_mod.AGENT_SYSTEM_PROMPTS["security_taiwan"]
+    text = prompt_mod.AGENT_SYSTEM_PROMPTS["security_taiwan"]
     assert "operational tactics" in text.lower()
 
 
@@ -61,20 +63,13 @@ def test_red_team_agent_returns_findings():
     assert len(findings) >= 1
 
 
-def test_build_final_timeline_dedupes_and_covers_years():
-    llm = LLMClient()
-    outputs = {}
-    for name in DOMAIN_AGENTS:
-        outputs[name] = agent_mod.run_domain_agent(
-            llm,
-            agent_name=name,
-            seed="seed",
-            scenario_mode="base_case",
-            evidence_blob="ev",
-            round_number=1,
-            previous_summary=None,
-            previous_self_position=None,
-        )
-    timeline = agent_mod.build_final_timeline(outputs)
-    years = [yb.year for yb in timeline]
-    assert years == [2026, 2027, 2028, 2029, 2030, 2031]
+def test_build_final_timeline_uses_locked_years():
+    from app.schemas import TimelineEvent, YearBlock
+
+    locked = [
+        YearBlock(year=2026, headline="Event A", events=[TimelineEvent(event="A")]),
+        YearBlock(year=2027, headline="Event B", events=[TimelineEvent(event="B")]),
+    ]
+    timeline = agent_mod.build_final_timeline(locked)
+    assert [yb.year for yb in timeline] == [2026, 2027]
+    assert timeline[0].headline == "Event A"

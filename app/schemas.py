@@ -162,6 +162,7 @@ class AgentTimelineContribution(BaseModel):
 class AgentOutput(BaseModel):
     agent_name: str
     round_number: int = 1
+    target_year: int = 0
     main_assessment: str = ""
     key_drivers: List[str] = Field(default_factory=list)
     timeline_contributions: List[AgentTimelineContribution] = Field(
@@ -180,12 +181,23 @@ class AgentOutput(BaseModel):
 
 class DiscussionSummary(BaseModel):
     round_number: int
+    target_year: int = 2026
     areas_of_agreement: List[str] = Field(default_factory=list)
     areas_of_disagreement: List[str] = Field(default_factory=list)
     emerging_timeline: List[str] = Field(default_factory=list)
     key_uncertainties: List[str] = Field(default_factory=list)
     agent_positions: Dict[str, str] = Field(default_factory=dict)
     disagreement_query_terms: List[str] = Field(default_factory=list)
+
+
+class YearSimulationRecord(BaseModel):
+    """One simulation year: discussion rounds plus locked outcome."""
+
+    year: int
+    discussion_rounds: List[DiscussionSummary] = Field(default_factory=list)
+    resolved: YearBlock = Field(default_factory=lambda: YearBlock(year=2026))
+    year_gates: Optional["YearGateReport"] = None
+    year_judge: Optional["YearJudgeVerdict"] = None
 
 
 class RedTeamFinding(BaseModel):
@@ -211,6 +223,10 @@ class RunMetrics(BaseModel):
     per_agent_sources_used: Dict[str, List[str]] = Field(default_factory=dict)
     citation_warnings: List[str] = Field(default_factory=list)
     discussion_rounds_completed: int = 0
+    years_completed: int = 0
+    year_judges_run: int = 0
+    year_judges_passed: int = 0
+    timeline_judge_passed: bool = False
     elapsed_seconds: float = 0.0
     estimated_input_tokens: int = 0
     estimated_output_tokens: int = 0
@@ -294,6 +310,8 @@ class ScenarioState(BaseModel):
         default_factory=FinalEvidencePacket
     )
     discussion_rounds: List[DiscussionSummary] = Field(default_factory=list)
+    resolved_timeline: List[YearBlock] = Field(default_factory=list)
+    year_records: List[YearSimulationRecord] = Field(default_factory=list)
     agent_outputs: Dict[str, List[AgentOutput]] = Field(default_factory=dict)
     disagreements: List[str] = Field(default_factory=list)
     red_team_findings: List[RedTeamFinding] = Field(default_factory=list)
@@ -305,6 +323,7 @@ class ScenarioState(BaseModel):
     run_metrics: RunMetrics = Field(default_factory=RunMetrics)
     errors: List[str] = Field(default_factory=list)
     chunks_used_registry: Dict[str, EvidenceChunk] = Field(default_factory=dict)
+    timeline_quality: Optional["TimelineQualityResult"] = None
 
     @field_validator("scenario_mode")
     @classmethod
@@ -355,6 +374,42 @@ FAILURE_MODE_VALUES = (
     "ignored_hypothetical_seed",
 )
 
+YEAR_JUDGE_DIMENSION_NAMES = (
+    "year_scope",
+    "seed_fidelity",
+    "discussion_fidelity",
+    "prior_timeline_coherence",
+    "uncertainty_preservation",
+)
+
+YEAR_FAILURE_MODE_VALUES = (
+    "wrong_year_scope",
+    "seed_drift",
+    "ignored_agent_disagreement",
+    "contradicts_locked_history",
+    "overconfident_year_lock",
+    "false_consensus",
+    "generic_filler",
+)
+
+TIMELINE_JUDGE_DIMENSION_NAMES = (
+    "timeline_completeness",
+    "seed_fidelity",
+    "cross_year_coherence",
+    "escalation_arc",
+    "uncertainty_preservation",
+)
+
+TIMELINE_FAILURE_MODE_VALUES = (
+    "incomplete_timeline",
+    "seed_drift",
+    "contradictory_years",
+    "flat_escalation_arc",
+    "overconfident_timeline",
+    "ignored_per_year_judges",
+    "generic_filler",
+)
+
 
 class GateCheck(BaseModel):
     """One deterministic quality gate (G1–G6)."""
@@ -387,6 +442,44 @@ class JudgeVerdict(BaseModel):
     summary_paragraph: str = ""
 
 
+class YearGateReport(BaseModel):
+    passed: bool = True
+    blockers: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    checks: List[GateCheck] = Field(default_factory=list)
+
+
+class YearJudgeVerdict(BaseModel):
+    overall_score: float = Field(default=3.0, ge=1.0, le=5.0)
+    pass_quality_bar: bool = False
+    dimensions: List[JudgeDimension] = Field(default_factory=list)
+    failure_modes: List[str] = Field(default_factory=list)
+    one_line_verdict: str = ""
+    summary_paragraph: str = ""
+    layer0_blockers: List[str] = Field(default_factory=list)
+    judge_skipped: bool = False
+    judge_skip_reason: str = ""
+
+
+class TimelineJudgeVerdict(BaseModel):
+    overall_score: float = Field(default=3.0, ge=1.0, le=5.0)
+    pass_quality_bar: bool = False
+    dimensions: List[JudgeDimension] = Field(default_factory=list)
+    failure_modes: List[str] = Field(default_factory=list)
+    one_line_verdict: str = ""
+    summary_paragraph: str = ""
+    layer0_blockers: List[str] = Field(default_factory=list)
+
+
+class TimelineQualityResult(BaseModel):
+    gates: GateReport = Field(default_factory=GateReport)
+    judge: Optional[TimelineJudgeVerdict] = None
+    judge_skipped: bool = False
+    judge_skip_reason: str = ""
+    judged_at: str = ""
+    judge_model: str = ""
+
+
 class MonitorResult(BaseModel):
     gates: GateReport = Field(default_factory=GateReport)
     judge: Optional[JudgeVerdict] = None
@@ -412,9 +505,11 @@ class FinalScenario(BaseModel):
     red_team_warnings: List[str] = Field(default_factory=list)
     agent_summaries: Dict[str, str] = Field(default_factory=dict)
     discussion_summary: List[DiscussionSummary] = Field(default_factory=list)
+    year_records: List[YearSimulationRecord] = Field(default_factory=list)
     image_prompt: str = ""
     image: ImageResult = Field(default_factory=ImageResult)
     run_metrics: RunMetrics = Field(default_factory=RunMetrics)
+    timeline_quality: Optional[TimelineQualityResult] = None
     monitor: Optional[MonitorResult] = None
 
 

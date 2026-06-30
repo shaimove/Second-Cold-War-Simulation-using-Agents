@@ -45,6 +45,8 @@ class Config:
     use_llm_cache: bool
     enable_image_generation: bool
     enable_run_judge: bool
+    enable_year_judge: bool
+    enable_timeline_judge: bool
     parallel_domain_agents: bool
 
     max_agent_discussion_rounds: int
@@ -57,6 +59,8 @@ class Config:
     sqlite_path: str
     checkpoint_sqlite_path: str
     rag_chunks_path: str
+    rag_chroma_path: str
+    rag_embedding_model: str
     generated_images_dir: str
 
     @property
@@ -81,10 +85,12 @@ def load_config() -> Config:
         use_llm_cache=_get_bool("USE_LLM_CACHE", True),
         enable_image_generation=_get_bool("ENABLE_IMAGE_GENERATION", True),
         enable_run_judge=_get_bool("ENABLE_RUN_JUDGE", False),
+        enable_year_judge=_get_bool("ENABLE_YEAR_JUDGE", True),
+        enable_timeline_judge=_get_bool("ENABLE_TIMELINE_JUDGE", True),
         parallel_domain_agents=_get_bool("PARALLEL_DOMAIN_AGENTS", True),
         max_agent_discussion_rounds=_get_int("MAX_AGENT_DISCUSSION_ROUNDS", 3),
         max_retrieved_docs=_get_int("MAX_RETRIEVED_DOCS", 5),
-        max_agent_input_chars=_get_int("MAX_AGENT_INPUT_CHARS", 6000),
+        max_agent_input_chars=_get_int("MAX_AGENT_INPUT_CHARS", 8000),
         max_evidence_chars=_get_int("MAX_EVIDENCE_CHARS", 2500),
         self_position_max_chars=_get_int("SELF_POSITION_MAX_CHARS", 1000),
         enable_graph_checkpoints=_get_bool("ENABLE_GRAPH_CHECKPOINTS", True),
@@ -93,6 +99,10 @@ def load_config() -> Config:
             "CHECKPOINT_SQLITE_PATH", "data/checkpoints.sqlite"
         ),
         rag_chunks_path=os.getenv("RAG_CHUNKS_PATH", "data/rag_chunks.json"),
+        rag_chroma_path=os.getenv("RAG_CHROMA_PATH", "data/chroma"),
+        rag_embedding_model=os.getenv(
+            "RAG_EMBEDDING_MODEL", "text-embedding-3-small"
+        ),
         generated_images_dir=os.getenv(
             "GENERATED_IMAGES_DIR", "data/generated_images"
         ),

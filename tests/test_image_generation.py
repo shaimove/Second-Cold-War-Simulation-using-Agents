@@ -29,6 +29,8 @@ def _make_config(**overrides):
         openai_orchestrator_model=base.openai_orchestrator_model,
         openai_judge_model=base.openai_judge_model,
         enable_run_judge=base.enable_run_judge,
+        enable_year_judge=base.enable_year_judge,
+        enable_timeline_judge=base.enable_timeline_judge,
         openai_image_model=base.openai_image_model,
         use_rag=base.use_rag,
         use_llm_cache=False,
@@ -43,6 +45,8 @@ def _make_config(**overrides):
         sqlite_path=base.sqlite_path,
         checkpoint_sqlite_path=base.checkpoint_sqlite_path,
         rag_chunks_path=base.rag_chunks_path,
+        rag_chroma_path=base.rag_chroma_path,
+        rag_embedding_model=base.rag_embedding_model,
         generated_images_dir=base.generated_images_dir,
     )
     fields.update(overrides)

@@ -32,12 +32,14 @@ def main() -> int:
             p=result.output_path,
         )
     )
+    if result.vector_index_path:
+        print("Vector index: {p}".format(p=result.vector_index_path))
     if result.skipped_files:
         print("Skipped {n} file(s) with no extractable text.".format(n=result.skipped_files))
     if result.chunk_count == 0:
         print(
             "Knowledge base is empty or unreadable. The app will still run; "
-            "drop .md/.txt/.pdf files into knowledge_base/ and re-run this script."
+            "drop .txt/.pdf files into knowledge_base/ and re-run this script."
         )
     return 0
 

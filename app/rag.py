@@ -18,9 +18,10 @@ from .schemas import (
     RunMetrics,
 )
 from .utils import stable_hash, truncate
+from . import rag_vector_store as vector_store
 
 
-SUPPORTED_EXTENSIONS = (".md", ".txt", ".pdf")
+SUPPORTED_EXTENSIONS = (".txt", ".pdf")
 DEFAULT_CHUNK_CHARS = 1200
 DEFAULT_CHUNK_OVERLAP = 150
 DEFAULT_PREPROCESSED_DIR = "data/preprocessed"
@@ -98,6 +99,7 @@ class IngestionResult:
     chunk_count: int
     files_processed: int
     output_path: str
+    vector_index_path: str = ""
     pdf_files: int = 0
     text_files: int = 0
     skipped_files: int = 0
@@ -355,14 +357,31 @@ def _passes_filters(chunk: Dict[str, Any], filters: Optional[RetrievalFilters]) 
     return True
 
 
-def retrieve_candidates(
+def _filters_to_chroma_where(filters: Optional[RetrievalFilters]) -> Optional[Dict[str, Any]]:
+    if not filters:
+        return None
+    clauses: List[Dict[str, Any]] = []
+    if filters.domains:
+        domains = list(dict.fromkeys(list(filters.domains) + ["general"]))
+        clauses.append({"domain": {"$in": domains}})
+    if filters.source_types:
+        clauses.append({"source_type": {"$in": list(filters.source_types)}})
+    if filters.periods:
+        periods = list(dict.fromkeys(list(filters.periods) + ["general"]))
+        clauses.append({"period": {"$in": periods}})
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
+def _retrieve_candidates_tfidf(
     query: str,
-    filters: Optional[RetrievalFilters] = None,
-    candidate_k: Optional[int] = None,
-    chunks_path: Optional[str] = None,
+    filters: Optional[RetrievalFilters],
+    candidate_k: int,
+    chunks_path: Optional[str],
 ) -> List[EvidenceChunk]:
-    cfg = ACTIVE_RAG_CONFIG
-    candidate_k = candidate_k or int(cfg.get("baseline_candidate_k", 25))
     chunks = load_chunks(chunks_path)
     if not chunks:
         return []
@@ -388,6 +407,68 @@ def retrieve_candidates(
     for score, ch in ranked[:candidate_k]:
         out.append(_dict_to_evidence_chunk(ch, score))
     return out
+
+
+def _retrieve_candidates_chroma(
+    query: str,
+    filters: Optional[RetrievalFilters],
+    candidate_k: int,
+    chunks_path: Optional[str],
+    chroma_path: Optional[str],
+) -> List[EvidenceChunk]:
+    where = _filters_to_chroma_where(filters)
+    hits = vector_store.query_chunks(
+        query,
+        n_results=candidate_k,
+        where=where,
+        chunks_path=chunks_path,
+        chroma_path=chroma_path,
+    )
+    if not hits and where is not None:
+        hits = vector_store.query_chunks(
+            query,
+            n_results=candidate_k,
+            where=None,
+            chunks_path=chunks_path,
+            chroma_path=chroma_path,
+        )
+
+    q_tokens = _tokenize(query)
+    out: List[EvidenceChunk] = []
+    for ch, score in hits:
+        if filters and not _passes_filters(ch, filters):
+            continue
+        total = float(score) + _metadata_bonus(ch, filters, q_tokens)
+        if total <= 0:
+            continue
+        out.append(_dict_to_evidence_chunk(ch, total))
+    out.sort(key=lambda c: c.score, reverse=True)
+    return out[:candidate_k]
+
+
+def retrieve_candidates(
+    query: str,
+    filters: Optional[RetrievalFilters] = None,
+    candidate_k: Optional[int] = None,
+    chunks_path: Optional[str] = None,
+    chroma_path: Optional[str] = None,
+) -> List[EvidenceChunk]:
+    cfg = ACTIVE_RAG_CONFIG
+    candidate_k = candidate_k or int(cfg.get("baseline_candidate_k", 25))
+
+    indexed = vector_store.collection_count(
+        chunks_path=chunks_path,
+        chroma_path=chroma_path,
+    )
+    if indexed > 0:
+        return _retrieve_candidates_chroma(
+            query,
+            filters,
+            candidate_k,
+            chunks_path,
+            chroma_path,
+        )
+    return _retrieve_candidates_tfidf(query, filters, candidate_k, chunks_path)
 
 
 def rerank_candidates(
@@ -530,6 +611,7 @@ def retrieve_for_agent(
     seed: str,
     scenario_mode: str,
     agent_name: str,
+    target_year: int = 2026,
     round_number: int = 1,
     recorder: Optional[RagMetricsRecorder] = None,
     chunks_path: Optional[str] = None,
@@ -544,7 +626,11 @@ def retrieve_for_agent(
     if not profile:
         return []
 
-    query = _build_query(seed, scenario_mode, profile.get("query_suffix", ""))
+    query = _build_query(
+        seed,
+        scenario_mode,
+        "year {y} ".format(y=target_year) + profile.get("query_suffix", ""),
+    )
     filters = RetrievalFilters(domains=list(profile.get("domains") or []))
     return retrieve_cached(
         seed=seed,
@@ -564,6 +650,7 @@ def retrieve_for_disagreement(
     seed: str,
     scenario_mode: str,
     discussion_summary: Optional[DiscussionSummary],
+    target_year: int = 2026,
     recorder: Optional[RagMetricsRecorder] = None,
     chunks_path: Optional[str] = None,
 ) -> List[EvidenceChunk]:
@@ -580,7 +667,11 @@ def retrieve_for_disagreement(
     if not terms:
         return []
 
-    query = _build_query(seed, scenario_mode, " ".join(terms))
+    query = _build_query(
+        seed,
+        scenario_mode,
+        "year {y} ".format(y=target_year) + " ".join(terms),
+    )
     filters = RetrievalFilters(
         domains=["strategy_framework", "historical_analogy", "general", "security_taiwan"]
     )
@@ -811,7 +902,7 @@ def _read_source_text(
     preprocessed_dir: Optional[str] = None,
 ) -> str:
     ext = os.path.splitext(path)[1].lower()
-    if ext in (".md", ".txt"):
+    if ext == ".txt":
         with open(path, "r", encoding="utf-8", errors="ignore") as fh:
             return _normalize_extracted_text(fh.read())
 
@@ -922,10 +1013,16 @@ def ingest_knowledge_base(
     with open(output_path, "w", encoding="utf-8") as fh:
         json.dump(stored, fh, ensure_ascii=False, indent=2)
 
+    vector_path = vector_store.index_chunks(
+        stored,
+        chunks_path=output_path,
+    )
+
     return IngestionResult(
         chunk_count=len(stored),
         files_processed=files_processed,
         output_path=output_path,
+        vector_index_path=vector_path,
         pdf_files=pdf_files,
         text_files=text_files,
         skipped_files=skipped_files,
@@ -962,6 +1059,7 @@ def retrieve_with_cache(
 
 def clear_retrieval_cache() -> None:
     _RETRIEVAL_CACHE.clear()
+    vector_store.reset_vector_store_cache()
 
 
 def reload_rag_config() -> Dict[str, Any]:

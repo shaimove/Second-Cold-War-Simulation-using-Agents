@@ -20,7 +20,7 @@ unit-tested production-style Python**.
 **Interview algo spec (design, prompts, tuning):** [docs/ALGO_SPEC.md](docs/ALGO_SPEC.md)  
 **Quality monitor MVP (gates + LLM judge):** [docs/MONITOR.md](docs/MONITOR.md)  
 **Full evaluation reference:** [docs/EVALUATION.md](docs/EVALUATION.md)  
-**Interview story (architecture, agents, cost, fallbacks):** [docs/INTERVIEW.md](docs/INTERVIEW.md)
+**Prompt development guide:** [docs/PROMPTS.md](docs/PROMPTS.md)
 
 ---
 
@@ -32,15 +32,18 @@ red-team before a final orchestrator synthesizes them:
 
 - **Orchestrator** initializes state, summarizes each round, decides when
   to stop, and produces the final 2026–2031 timeline + image prompt.
-- **Evidence / RAG agent** pulls relevant context from local
-  markdown/text knowledge base, separating *observed facts* from
-  *historical analogies*, *strategy frameworks*, and *hypothetical
+- **Evidence / RAG agent** pulls relevant context from a local `.txt`/`.pdf`
+  knowledge base via a **Chroma vector index**, separating *observed facts*
+  from *historical analogies*, *strategy frameworks*, and *hypothetical
   assumptions* extracted from the seed.
 - **Five domain agents** (Geo-Strategy, Economy & Technology, Domestic
-  Politics & Ideology, Security/Taiwan, Historical Analogy) each give an
-  independent assessment, then revise across up to **three discussion
-  rounds**.
-- **Red-Team agent** challenges the consensus.
+  Politics & Ideology, Security/Taiwan, Historical Analogy) debate **one
+  simulation year at a time** (2026→2031), up to **three rounds per year**.
+- **Orchestrator** summarizes each round, **locks each year**, runs an
+  optional **year quality judge**, then synthesizes the final narrative.
+- **Red-Team agent** challenges the full locked timeline.
+- **Quality monitor** — deterministic gates + LLM-as-judge (per year and
+  optional final run judge).
 - **Image generation** produces a non-graphic editorial illustration.
 
 Every run is deterministic-by-cache and works **with or without** an
@@ -54,13 +57,14 @@ OpenAI API key (mock mode is the default when no key is set).
 flowchart TD
     A[User Seed + Mode] --> B[Orchestrator Init]
     B --> C[Evidence / RAG Agent]
-    C --> D1[Discussion Round 1<br/>5 domain agents]
-    D1 --> S1[Orchestrator Summary 1]
-    S1 --> D2[Discussion Round 2]
-    D2 --> S2[Orchestrator Summary 2]
-    S2 --> D3[Discussion Round 3]
-    D3 --> S3[Orchestrator Summary 3]
-    S3 --> R[Red-Team Agent]
+    C --> Y[For each year 2026-2031]
+    Y --> D[Up to 3 discussion rounds<br/>5 parallel domain agents]
+    D --> S[Orchestrator round summary]
+    S --> L[Orchestrator year lock]
+    L --> J[Year quality judge]
+    J --> Y
+    Y --> TQ[Timeline QA<br/>gates + LLM judge]
+    TQ --> R[Red-Team Agent]
     R --> F[Orchestrator Final Synthesis]
     F --> I[Image Generation]
     I --> SV[Save Run to SQLite]
@@ -78,9 +82,8 @@ exercise both paths.
 START
  -> orchestrator_initialize
  -> evidence_rag_agent
- -> discussion_round_1 -> orchestrator_summarize_round_1
- -> discussion_round_2 -> orchestrator_summarize_round_2
- -> discussion_round_3 -> orchestrator_summarize_round_3
+ -> year_2026_cycle ... year_2031_cycle   # each: up to 3 agent rounds + year lock + judge
+ -> timeline_quality_check                # Layer 0 gates + LLM judge on full timeline
  -> red_team_agent
  -> orchestrator_synthesis
  -> orchestrator_image_generation
@@ -88,9 +91,16 @@ START
 END
 ```
 
-### Multi-round discussion design
+Agent system prompts live in **`app/prompts.py`** (see [docs/PROMPTS.md](docs/PROMPTS.md)).
 
-In each round every domain agent receives only:
+### Per-year discussion design
+
+For **each year 2026→2031**, domain agents run up to three rounds (parallel
+inside each round). The orchestrator compresses each round, then **locks**
+that year before moving on. Locked prior years are passed as established
+history — agents do not re-debate the past.
+
+Each agent receives:
 
 - the seed and scenario mode
 - a **compact evidence summary** (never the raw documents)
@@ -107,24 +117,28 @@ rounds.
 
 ## RAG
 
-The knowledge base is a folder of `.md`, `.txt`, and `.pdf` files in
+The knowledge base is a folder of `.txt` and `.pdf` files in
 `knowledge_base/`. `scripts/ingest_docs.py` extracts PDF text (cached
 under `data/preprocessed/`), chunks all documents, infers a
 `source_type` (`current_context | historical_analogy | strategy_framework
 | unknown`) from the path, and writes them to `data/rag_chunks.json`.
 
-Retrieval uses **TF-IDF cosine similarity** (scikit-learn) when available
-and a **keyword-overlap fallback** when it isn't. The whole pipeline is
-empty-safe: if you haven't added any books yet, the Evidence agent
-simply reports that future events are hypothetical and uses general
-model reasoning.
+Retrieval uses a **persistent Chroma vector index** (`data/chroma/`) with
+OpenAI embeddings (`text-embedding-3-small`) when `OPENAI_API_KEY` is set;
+tests use Chroma's local default embedder. Chunk metadata is also written to
+`data/rag_chunks.json` for inspection. TF-IDF is only a fallback when the
+vector index is empty.
+
+```bash
+python scripts/ingest_docs.py   # builds JSON + Chroma index
+```
 
 To add books later:
 
 ```
 knowledge_base/
-  history/cold_war_overview.md
-  strategy/containment_doctrine.md
+  history/cold_war_overview.txt
+  strategy/containment_doctrine.txt
   current_context/2025_chip_controls.txt
 python scripts/ingest_docs.py
 ```
@@ -192,6 +206,11 @@ prompt and calls `OPENAI_IMAGE_MODEL`. Generated PNGs are saved under
 | Early stopping | `cost_control.should_stop_early` |
 | LLM cache | SQLite `llm_cache` table keyed by hash(model+agent+context) |
 | Retrieval cache | In-process dict keyed by hash(seed+mode+agent+round+query+filters) |
+| Vector index | Persistent Chroma store (`data/chroma/`) — no TF-IDF refit per query |
+| Year quality judge | Layer 0 gates + one LLM call after each year lock (`ENABLE_YEAR_JUDGE`) |
+| Timeline quality judge | Layer 0 gates + one LLM call after all years locked (`ENABLE_TIMELINE_JUDGE`) |
+| Final quality judge | Hard gates + one LLM call on saved run (`ENABLE_RUN_JUDGE` or **Run judge** button) |
+| Prompt budgeting | `budget_prompt_sections()` trims evidence before schema instructions |
 | RAG metrics | `rag_calls`, `unique_chunks_used`, `most_cited_chunk_ids`, etc. |
 | Token budget | `MAX_AGENT_INPUT_CHARS`, `MAX_EVIDENCE_CHARS` |
 | Mock mode | Deterministic stub responses when no API key |
@@ -202,13 +221,13 @@ prompt and calls `OPENAI_IMAGE_MODEL`. Generated PNGs are saved under
 ## Running locally
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# (optional) add OPENAI_API_KEY=... to .env to enable live mode
-python scripts/ingest_docs.py
-uvicorn app.main:app --reload
+# add OPENAI_API_KEY=... to .env for live LLM + embeddings
+python scripts/ingest_docs.py    # required: builds JSON + Chroma index
+uvicorn app.main:app --reload --port 8000
 ```
 
 Then open <http://localhost:8000>.
@@ -221,16 +240,23 @@ Convenience wrapper: `bash run_local.sh`.
 OPENAI_API_KEY=                 # empty = mock mode
 OPENAI_MODEL=gpt-5.4-mini             # domain agents, evidence, red-team
 OPENAI_ORCHESTRATOR_MODEL=gpt-5.4   # round summaries + final synthesis + JSON repair
+OPENAI_JUDGE_MODEL=gpt-5.4-mini     # year + final quality judge
 OPENAI_IMAGE_MODEL=gpt-image-2      # image model
 
 USE_RAG=true
 USE_LLM_CACHE=true
 ENABLE_IMAGE_GENERATION=true
+ENABLE_YEAR_JUDGE=true
+ENABLE_TIMELINE_JUDGE=true
 
 MAX_AGENT_DISCUSSION_ROUNDS=3
 MAX_RETRIEVED_DOCS=5
-MAX_AGENT_INPUT_CHARS=6000
+MAX_AGENT_INPUT_CHARS=12000
 MAX_EVIDENCE_CHARS=2500
+
+RAG_CHUNKS_PATH=data/rag_chunks.json
+RAG_CHROMA_PATH=data/chroma
+RAG_EMBEDDING_MODEL=text-embedding-3-small
 ```
 
 The model is **never hard-coded**; everything flows through `app/config.py`.
@@ -256,7 +282,10 @@ Test files:
 |---|---|
 | `test_config.py` | env loading, bool/int parsing, defaults |
 | `test_schemas.py` | Pydantic validation + invalid-mode rejection |
-| `test_rag.py` | empty KB, ingest, retrieve, retrieval cache |
+| `test_rag.py` | empty KB, ingest, Chroma index, retrieve, cache |
+| `test_tier2_rag.py` | metadata filters, lanes, per-agent retrieval |
+| `test_monitor_year_gates.py` | deterministic year gates (Layer 0) |
+| `test_monitor_year_judge.py` | per-year LLM judge mock |
 | `test_llm.py` | mock mode, cache key stability, JSON fallback |
 | `test_agents.py` | all agents return required fields, safety prompt |
 | `test_graph.py` | end-to-end run, all 3 rounds, 2026–2031 coverage |
@@ -287,7 +316,10 @@ Test files:
 | `POST` | `/api/run-scenario` | Run multi-agent simulation |
 | `GET` | `/api/runs` | List saved runs |
 | `GET` | `/api/runs/{run_id}` | Load a saved run |
-| `POST` | `/api/ingest` | Re-ingest knowledge base |
+| `GET` | `/api/runs/{run_id}/checkpoint` | Graph checkpoint status |
+| `POST` | `/api/runs/{run_id}/resume` | Resume interrupted run |
+| `POST` | `/api/runs/{run_id}/judge` | Run final quality judge on saved run |
+| `POST` | `/api/ingest` | Re-ingest knowledge base → JSON + Chroma |
 
 ---
 
@@ -295,17 +327,15 @@ Test files:
 
 - No live news API: the "current context" comes only from your local
   knowledge base.
-- The model is asked to phrase outputs as *one plausible scenario* - it
+- The model is asked to phrase outputs as *one plausible scenario* — it
   is not predicting the future.
-- Retrieval is intentionally simple (TF-IDF / keyword overlap). For
-  production you'd swap in pgvector / Chroma / Qdrant.
-- No auth, no rate limits - local-only by design.
+- First ingest / first Chroma query can be slow while embeddings initialize.
+- No auth, no rate limits — local-only by design.
 
 ## Future improvements
 
-- Real vector store (pgvector / Chroma) behind the same `retrieve` API.
 - Async agent execution inside each round.
 - Streaming progress via Server-Sent Events.
 - React frontend with a saved-run diff view.
 - Live news ingestion job.
-- Per-agent token budgets with adaptive truncation.
+- Auto-retry when year judge fails quality bar.

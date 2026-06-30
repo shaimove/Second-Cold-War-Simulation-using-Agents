@@ -2,12 +2,13 @@
 
 Flow:
     START -> orchestrator_initialize -> evidence_rag_agent
-          -> discussion_round_1 -> orchestrator_summarize_round_1
-          -> disagreement_retrieval (round 2 prep)
-          -> discussion_round_2 -> orchestrator_summarize_round_2
-          -> discussion_round_3 -> orchestrator_summarize_round_3
+          -> year_2026_cycle -> ... -> year_2031_cycle
+          -> timeline_quality_check
           -> red_team_agent -> orchestrator_synthesis
           -> orchestrator_image_generation -> save_run -> END
+
+Each year cycle runs up to 3 discussion iterations, then locks that year.
+After all six years are locked, timeline QA runs before red team.
 """
 from __future__ import annotations
 
@@ -17,7 +18,6 @@ from typing import Any, Callable, Dict, List, Optional
 from . import agents as agent_mod
 from . import config as _config_mod
 from . import db
-from .cost_control import should_stop_early
 from .final_output_validation import resolve_orchestrator_synthesis
 from .image_generation import build_image_prompt, generate_image
 from .llm import LLMClient
@@ -27,12 +27,7 @@ from .rag import (
     build_final_evidence_packet,
     clear_retrieval_cache,
     retrieve_baseline,
-    retrieve_for_disagreement,
     retrieve_for_red_team,
-)
-from .parallel_agents import (
-    _run_domain_agents_sequential_fallback as _run_domain_agents_sequential,
-    run_domain_agents_parallel,
 )
 from .rag_citations import build_agent_evidence_packet, register_chunks
 from .schemas import (
@@ -52,7 +47,9 @@ from .checkpoints import (
     reset_active_llm,
     set_active_llm,
 )
-from .utils import new_run_id, truncate
+from .utils import SIMULATION_YEARS, new_run_id, truncate
+from .year_simulation import run_year_cycle
+from .monitor.timeline_judge import evaluate_locked_timeline
 
 
 def _state_from_dict(state_dict: Dict[str, Any]) -> ScenarioState:
@@ -124,108 +121,42 @@ def evidence_rag_node(state: ScenarioState, llm: LLMClient) -> ScenarioState:
     return state
 
 
-def _run_discussion_round(
-    state: ScenarioState, llm: LLMClient, round_number: int
-) -> ScenarioState:
-    if getattr(state, "_early_stopped", False):
-        return state
+def _make_year_cycle_node(year: int):
+    def year_cycle_node(state: ScenarioState, llm: LLMClient) -> ScenarioState:
+        recorder = _rag_recorder(state)
+        return run_year_cycle(state, llm, year, recorder)
 
-    recorder = _rag_recorder(state)
-    prev_summary: Optional[DiscussionSummary] = (
-        state.discussion_rounds[-1] if state.discussion_rounds else None
-    )
-    disagreement_chunks = (
-        state.disagreement_chunks if round_number >= 2 else []
-    )
-
-    if _config_mod.CONFIG.parallel_domain_agents:
-        latest_outputs = run_domain_agents_parallel(
-            state,
-            llm,
-            round_number,
-            recorder,
-            prev_summary,
-            disagreement_chunks,
-        )
-    else:
-        latest_outputs = _run_domain_agents_sequential(
-            state, llm, round_number, recorder, prev_summary, disagreement_chunks
-        )
-
-    state.run_metrics.discussion_rounds_completed = round_number
-    state._latest_round_outputs = latest_outputs  # type: ignore[attr-defined]
-    return state
+    year_cycle_node.__name__ = "year_{}_cycle".format(year)
+    return year_cycle_node
 
 
-def discussion_round_1(state: ScenarioState, llm: LLMClient) -> ScenarioState:
-    return _run_discussion_round(state, llm, 1)
-
-
-def disagreement_retrieval_node(state: ScenarioState, _llm: LLMClient) -> ScenarioState:
-    if not state.discussion_rounds:
-        return state
-    recorder = _rag_recorder(state)
-    chunks = retrieve_for_disagreement(
+def timeline_quality_node(state: ScenarioState, llm: LLMClient) -> ScenarioState:
+    """Layer 0 gates + LLM judge on the full locked timeline."""
+    result = evaluate_locked_timeline(
         state.seed,
         state.scenario_mode,
-        state.discussion_rounds[-1],
-        recorder=recorder,
+        state.resolved_timeline,
+        state.year_records,
+        llm=llm,
     )
-    state.disagreement_chunks = chunks
-    register_chunks(state.chunks_used_registry, chunks)
+    state.timeline_quality = result
+    if result.judge and result.judge.pass_quality_bar:
+        state.run_metrics.timeline_judge_passed = True
+    for w in result.gates.warnings:
+        state.run_metrics.citation_warnings.append("timeline: %s" % w)
+    if result.judge and not result.judge.pass_quality_bar:
+        state.run_metrics.citation_warnings.append(
+            "timeline judge: %s" % (result.judge.one_line_verdict or "below quality bar")
+        )
     return state
-
-
-def discussion_round_2(state: ScenarioState, llm: LLMClient) -> ScenarioState:
-    if getattr(state, "_early_stopped", False):
-        return state
-    return _run_discussion_round(state, llm, 2)
-
-
-def discussion_round_3(state: ScenarioState, llm: LLMClient) -> ScenarioState:
-    if getattr(state, "_early_stopped", False):
-        return state
-    if _config_mod.CONFIG.max_agent_discussion_rounds < 3:
-        return state
-    return _run_discussion_round(state, llm, 3)
-
-
-def _summarize_round(state: ScenarioState, llm: LLMClient, round_number: int) -> ScenarioState:
-    latest = getattr(state, "_latest_round_outputs", None)
-    if not latest:
-        return state
-    summary = agent_mod.run_orchestrator_summary(
-        llm,
-        seed=state.seed,
-        scenario_mode=state.scenario_mode,
-        round_number=round_number,
-        latest_outputs=latest,
-    )
-    state.discussion_rounds.append(summary)
-
-    if round_number >= 2 and should_stop_early(round_number, summary):
-        state._early_stopped = True  # type: ignore[attr-defined]
-    return state
-
-
-def orchestrator_summarize_round_1(state: ScenarioState, llm: LLMClient) -> ScenarioState:
-    return _summarize_round(state, llm, 1)
-
-
-def orchestrator_summarize_round_2(state: ScenarioState, llm: LLMClient) -> ScenarioState:
-    if getattr(state, "_early_stopped", False) and state.run_metrics.discussion_rounds_completed < 2:
-        return state
-    return _summarize_round(state, llm, 2)
-
-
-def orchestrator_summarize_round_3(state: ScenarioState, llm: LLMClient) -> ScenarioState:
-    if state.run_metrics.discussion_rounds_completed < 3:
-        return state
-    return _summarize_round(state, llm, 3)
 
 
 def red_team_node(state: ScenarioState, llm: LLMClient) -> ScenarioState:
     last_summary = state.discussion_rounds[-1] if state.discussion_rounds else None
+    if not last_summary and state.year_records:
+        rounds = state.year_records[-1].discussion_rounds
+        last_summary = rounds[-1] if rounds else None
+
     recorder = _rag_recorder(state)
     red_chunks = retrieve_for_red_team(
         state.seed,
@@ -258,6 +189,7 @@ def red_team_node(state: ScenarioState, llm: LLMClient) -> ScenarioState:
         seed=state.seed,
         scenario_mode=state.scenario_mode,
         evidence_packet=packet,
+        resolved_timeline=state.resolved_timeline,
         final_round_summary=last_summary,
         agent_positions=positions,
         allowed_chunk_ids=allowed_ids,
@@ -270,6 +202,10 @@ def red_team_node(state: ScenarioState, llm: LLMClient) -> ScenarioState:
 
 def orchestrator_synthesis(state: ScenarioState, llm: LLMClient) -> ScenarioState:
     last_summary = state.discussion_rounds[-1] if state.discussion_rounds else None
+    if not last_summary and state.year_records:
+        rounds = state.year_records[-1].discussion_rounds
+        last_summary = rounds[-1] if rounds else None
+
     last_per_agent: Dict[str, AgentOutput] = {
         name: outs[-1]
         for name, outs in state.agent_outputs.items()
@@ -280,7 +216,7 @@ def orchestrator_synthesis(state: ScenarioState, llm: LLMClient) -> ScenarioStat
         agent_name="red_team", main_assessment=""
     )
 
-    state.final_timeline = agent_mod.build_final_timeline(last_per_agent)
+    state.final_timeline = agent_mod.build_final_timeline(state.resolved_timeline)
 
     state.final_evidence_packet = build_final_evidence_packet(
         baseline_chunks=state.baseline_chunks,
@@ -295,6 +231,7 @@ def orchestrator_synthesis(state: ScenarioState, llm: LLMClient) -> ScenarioStat
         seed=state.seed,
         scenario_mode=state.scenario_mode,
         evidence=state.evidence_summary,
+        resolved_timeline=state.resolved_timeline,
         last_summary=last_summary,
         domain_outputs=last_per_agent,
         red_team=red_team_last,
@@ -308,6 +245,7 @@ def orchestrator_synthesis(state: ScenarioState, llm: LLMClient) -> ScenarioStat
             seed=state.seed,
             scenario_mode=state.scenario_mode,
             evidence=state.evidence_summary,
+            resolved_timeline=state.resolved_timeline,
             last_summary=last_summary,
             domain_outputs=last_per_agent,
             red_team=red_team_last,
@@ -394,6 +332,10 @@ def build_final_scenario(state: ScenarioState) -> FinalScenario:
         key_assumptions.extend(out.agreements[:2])
     key_assumptions = list(dict.fromkeys(a for a in key_assumptions if a))[:8]
 
+    all_discussions: List[DiscussionSummary] = []
+    for record in state.year_records:
+        all_discussions.extend(record.discussion_rounds)
+
     return FinalScenario(
         run_id=state.run_id,
         scenario_title=state.scenario_title,
@@ -406,28 +348,35 @@ def build_final_scenario(state: ScenarioState) -> FinalScenario:
         main_disagreements=state.disagreements,
         red_team_warnings=red_warnings,
         agent_summaries=agent_summaries,
-        discussion_summary=state.discussion_rounds,
+        discussion_summary=all_discussions or state.discussion_rounds,
+        year_records=list(state.year_records),
+        timeline_quality=state.timeline_quality,
         image_prompt=state.image_prompt,
         image=state.image_result,
         run_metrics=state.run_metrics,
     )
 
 
-NODES: List[tuple] = [
-    ("orchestrator_initialize", orchestrator_initialize),
-    ("evidence_rag_agent", evidence_rag_node),
-    ("discussion_round_1", discussion_round_1),
-    ("orchestrator_summarize_round_1", orchestrator_summarize_round_1),
-    ("disagreement_retrieval", disagreement_retrieval_node),
-    ("discussion_round_2", discussion_round_2),
-    ("orchestrator_summarize_round_2", orchestrator_summarize_round_2),
-    ("discussion_round_3", discussion_round_3),
-    ("orchestrator_summarize_round_3", orchestrator_summarize_round_3),
-    ("red_team_agent", red_team_node),
-    ("orchestrator_synthesis", orchestrator_synthesis),
-    ("orchestrator_image_generation", orchestrator_image_generation),
-    ("save_run", save_run_node),
-]
+def _build_nodes() -> List[tuple]:
+    nodes: List[tuple] = [
+        ("orchestrator_initialize", orchestrator_initialize),
+        ("evidence_rag_agent", evidence_rag_node),
+    ]
+    for year in SIMULATION_YEARS:
+        nodes.append(("year_{}_cycle".format(year), _make_year_cycle_node(year)))
+    nodes.extend(
+        [
+            ("timeline_quality_check", timeline_quality_node),
+            ("red_team_agent", red_team_node),
+            ("orchestrator_synthesis", orchestrator_synthesis),
+            ("orchestrator_image_generation", orchestrator_image_generation),
+            ("save_run", save_run_node),
+        ]
+    )
+    return nodes
+
+
+NODES: List[tuple] = _build_nodes()
 
 
 def build_graph(checkpointer=None, **compile_kwargs):

@@ -82,6 +82,7 @@ def get_config() -> Dict[str, Any]:
         "max_agent_discussion_rounds": cfg.max_agent_discussion_rounds,
         "judge_model": cfg.openai_judge_model,
         "enable_run_judge": cfg.enable_run_judge,
+        "enable_timeline_judge": cfg.enable_timeline_judge,
         "enable_graph_checkpoints": cfg.enable_graph_checkpoints,
     }
 
@@ -146,4 +147,5 @@ def ingest() -> Dict[str, Any]:
         "text_files": result.text_files,
         "skipped_files": result.skipped_files,
         "output_path": result.output_path,
+        "vector_index_path": result.vector_index_path,
     }

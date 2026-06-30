@@ -6,7 +6,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 SIMULATION_YEARS = [2026, 2027, 2028, 2029, 2030, 2031]
@@ -35,6 +35,53 @@ def truncate(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3].rstrip() + "..."
+
+
+def assemble_user_prompt(context: str, fixed_suffix: str, max_chars: int) -> str:
+    """Build a user prompt that never truncates the fixed suffix (schema, citations).
+
+    Trims `context` first so JSON instructions stay intact when the budget is tight.
+    """
+    fixed_suffix = fixed_suffix or ""
+    context = context or ""
+    if len(fixed_suffix) >= max_chars:
+        return truncate(fixed_suffix, max_chars)
+    budget = max_chars - len(fixed_suffix)
+    return budget_prompt_sections([(context, 1)], budget) + fixed_suffix
+
+
+def budget_prompt_sections(
+    sections: List[Tuple[str, int]],
+    max_chars: int,
+) -> str:
+    """Join prompt sections; trim higher `trim_priority` sections first when over budget.
+
+    Lower priority numbers are preserved longer (e.g. 1 = seed header, 5 = verbose blob).
+    """
+    if max_chars <= 0:
+        return ""
+    if not sections:
+        return ""
+
+    parts: List[List] = [[text or "", priority] for text, priority in sections]
+
+    def joined() -> str:
+        return "\n\n".join(p[0] for p in parts if p[0])
+
+    if len(joined()) <= max_chars:
+        return joined()
+
+    while len(joined()) > max_chars:
+        trim_priority = max(p[1] for p in parts)
+        candidates = [p for p in parts if p[1] == trim_priority and len(p[0]) > 40]
+        if not candidates:
+            return truncate(joined(), max_chars)
+        target = candidates[0]
+        overflow = len(joined()) - max_chars
+        new_len = max(40, len(target[0]) - max(overflow, 80))
+        target[0] = truncate(target[0], new_len)
+
+    return joined()
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)

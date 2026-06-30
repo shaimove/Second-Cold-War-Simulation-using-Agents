@@ -19,13 +19,28 @@ def test_graph_runs_end_to_end_in_mock_mode():
         assert name in used
     assert "evidence_rag" in used
     assert "red_team" in used
-    assert final.run_metrics.discussion_rounds_completed >= 1
+    assert final.run_metrics.years_completed == 6
+    assert final.run_metrics.year_judges_run == 6
+    assert final.run_metrics.year_judges_passed == 6
+    assert len(final.year_records) == 6
+    assert all(r.year_judge is not None for r in final.year_records)
+    assert all(r.year_gates is not None for r in final.year_records)
+    assert final.timeline_quality is not None
+    assert final.timeline_quality.gates.passed is True
+    assert final.run_metrics.timeline_judge_passed is True
 
 
 def test_graph_runs_all_three_rounds_when_configured():
     final = run_graph(seed="x", scenario_mode="escalation")
-    assert final.run_metrics.discussion_rounds_completed >= 2
-    assert len(final.discussion_summary) >= 2
+    assert final.run_metrics.years_completed == 6
+    assert final.run_metrics.year_judges_run == 6
+    assert final.run_metrics.year_judges_passed == 6
+    assert len(final.year_records) == 6
+    assert all(r.year_judge is not None for r in final.year_records)
+    assert all(r.year_gates is not None for r in final.year_records)
+    assert final.timeline_quality is not None
+    assert final.timeline_quality.gates.passed is True
+    assert final.run_metrics.timeline_judge_passed is True
 
 
 def test_graph_image_generation_does_not_crash_run():

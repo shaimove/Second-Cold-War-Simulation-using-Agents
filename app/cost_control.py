@@ -74,6 +74,7 @@ def compact_agent_position(
 
 def build_discussion_summary(
     round_number: int,
+    target_year: int,
     latest_outputs: Dict[str, AgentOutput],
 ) -> DiscussionSummary:
     """Heuristic compaction used in mock mode AND as a fallback.
@@ -93,8 +94,10 @@ def build_discussion_summary(
         disagreements.extend(out.disagreements[:2])
         uncertainties.extend(out.uncertainties[:2])
         for tc in out.timeline_contributions[:2]:
+            if tc.year and tc.year != target_year:
+                continue
             timeline_bits.append(
-                "{y}: {e}".format(y=tc.year, e=truncate(tc.event, 80))
+                "{y}: {e}".format(y=tc.year or target_year, e=truncate(tc.event, 80))
             )
 
     def _dedupe(items: List[str], cap: int) -> List[str]:
@@ -124,6 +127,7 @@ def build_discussion_summary(
 
     return DiscussionSummary(
         round_number=round_number,
+        target_year=target_year,
         areas_of_agreement=_dedupe(agreements, 6),
         areas_of_disagreement=deduped_disagreements,
         emerging_timeline=_dedupe(timeline_bits, 8),

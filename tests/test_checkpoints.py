@@ -69,7 +69,7 @@ def test_checkpoint_resume_after_interrupt(tmp_path, monkeypatch):
     final = resume_graph(run_id, llm=llm)
     assert final.run_id == run_id
     assert final.scenario_summary
-    assert final.run_metrics.discussion_rounds_completed >= 1
+    assert final.run_metrics.years_completed == 6
 
     status_after = get_checkpoint_status(run_id)
     assert status_after is not None

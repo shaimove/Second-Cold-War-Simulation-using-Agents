@@ -32,7 +32,9 @@ ORCHESTRATOR_AGENT_NAMES = frozenset(
     }
 )
 
-JUDGE_AGENT_NAMES = frozenset({"quality_judge"})
+JUDGE_AGENT_NAMES = frozenset(
+    {"quality_judge", "year_quality_judge", "timeline_quality_judge"}
+)
 
 
 @dataclass
@@ -289,8 +291,16 @@ def _mock_json(
         }
 
     if schema_name == "discussion_summary" or agent_name == "orchestrator_summary":
+        year = 2026
+        if "Target year:" in user_prompt:
+            for part in user_prompt.split("Target year:")[1].split("\n"):
+                digits = "".join(ch for ch in part.strip() if ch.isdigit())
+                if digits:
+                    year = int(digits[:4])
+                    break
         return {
             "round_number": round_number or 1,
+            "target_year": year,
             "areas_of_agreement": [
                 "Tech and trade decoupling continues unevenly.",
                 "Taiwan remains the central flashpoint.",
@@ -299,9 +309,7 @@ def _mock_json(
                 "Pace of decoupling vs. selective re-engagement.",
             ],
             "emerging_timeline": [
-                "2026: heightened tech controls",
-                "2028: alliance recalibration",
-                "2030: partial stabilization or renewed crisis",
+                "{y}: heightened tech controls".format(y=year),
             ],
             "key_uncertainties": [
                 "Domestic political shocks in either country.",
@@ -313,6 +321,23 @@ def _mock_json(
                 "security_taiwan": "Gray-zone pressure rises, full conflict still unlikely.",
                 "historical_analogy": "Useful but imperfect Cold War parallels.",
             },
+        }
+
+    if schema_name == "year_decision" or agent_name == "orchestrator_year_decision":
+        year = round_number or 2026
+        return {
+            "year": year,
+            "headline": "Mock locked outcome for {y}".format(y=year),
+            "events": [
+                {
+                    "event": "Mock strategic development in {y}".format(y=year),
+                    "domain": "strategy",
+                    "probability": 0.5,
+                    "impact": "medium",
+                    "confidence": "medium",
+                    "rationale": "Mock year decision.",
+                }
+            ],
         }
 
     if schema_name == "red_team" or agent_name == "red_team":
@@ -362,6 +387,73 @@ def _mock_json(
             "key_assumptions": ["Repaired output"],
             "main_disagreements": ["Repair agent restored schema"],
             "image_prompt": _MOCK_IMAGE_PROMPT,
+        }
+
+    if schema_name == "year_judge_verdict" or agent_name == "year_quality_judge":
+        year = round_number or 2026
+        return {
+            "overall_score": 4.0,
+            "dimensions": [
+                {"name": "year_scope", "score": 4, "rationale": "Mock: locked year only."},
+                {"name": "seed_fidelity", "score": 4, "rationale": "Mock: seed reflected."},
+                {
+                    "name": "discussion_fidelity",
+                    "score": 4,
+                    "rationale": "Mock: reflects agent positions.",
+                },
+                {
+                    "name": "prior_timeline_coherence",
+                    "score": 4,
+                    "rationale": "Mock: consistent with prior years.",
+                },
+                {
+                    "name": "uncertainty_preservation",
+                    "score": 3,
+                    "rationale": "Mock: some uncertainty retained.",
+                },
+            ],
+            "failure_modes": [],
+            "one_line_verdict": "Mock year judge: acceptable lock for %d." % year,
+            "summary_paragraph": (
+                "The mock year judge found this year lock structurally acceptable: "
+                "it stays on the target year, aligns with the seed, and reflects "
+                "specialist discussion without erasing all uncertainty."
+            ),
+        }
+
+    if schema_name == "timeline_judge_verdict" or agent_name == "timeline_quality_judge":
+        return {
+            "overall_score": 4.0,
+            "dimensions": [
+                {
+                    "name": "timeline_completeness",
+                    "score": 4,
+                    "rationale": "Mock: six years locked with headlines.",
+                },
+                {"name": "seed_fidelity", "score": 4, "rationale": "Mock: arc reflects seed."},
+                {
+                    "name": "cross_year_coherence",
+                    "score": 4,
+                    "rationale": "Mock: years connect logically.",
+                },
+                {
+                    "name": "escalation_arc",
+                    "score": 3,
+                    "rationale": "Mock: moderate escalation path.",
+                },
+                {
+                    "name": "uncertainty_preservation",
+                    "score": 3,
+                    "rationale": "Mock: some open questions remain.",
+                },
+            ],
+            "failure_modes": [],
+            "one_line_verdict": "Mock timeline judge: coherent six-year arc.",
+            "summary_paragraph": (
+                "The mock timeline judge found the locked 2026-2031 arc structurally "
+                "complete and seed-aligned, with a plausible cross-year escalation "
+                "path and retained uncertainties suitable for red-team critique."
+            ),
         }
 
     if schema_name == "judge_verdict" or agent_name == "quality_judge":
@@ -425,13 +517,20 @@ def _mock_json(
         }
 
     domain = _MOCK_DOMAINS.get(agent_name, "strategy")
+    year = 2026
+    if "Target simulation year:" in user_prompt:
+        for part in user_prompt.split("Target simulation year:")[1].split("\n"):
+            digits = "".join(ch for ch in part.strip() if ch.isdigit())
+            if digits:
+                year = int(digits[:4])
+                break
     return {
         "agent_name": agent_name,
         "round_number": round_number or 1,
         "main_assessment": (
-            "[MOCK:{a}] Strategic-level assessment of the seed, "
+            "[MOCK:{a}] Strategic-level assessment for {y}, "
             "without operational detail."
-        ).format(a=agent_name),
+        ).format(a=agent_name, y=year),
         "key_drivers": [
             "Structural rivalry",
             "Tech competition",
@@ -439,28 +538,12 @@ def _mock_json(
         ],
         "timeline_contributions": [
             {
-                "year": 2026,
-                "event": "Initial reaction shapes signaling and posture.",
+                "year": year,
+                "event": "Mock development shaping the rivalry in {y}.".format(y=year),
                 "probability": 0.6,
                 "impact": "medium",
                 "confidence": "medium",
-                "rationale": "Both sides test responses cautiously.",
-            },
-            {
-                "year": 2028,
-                "event": "Mid-cycle adjustment in policy and alliances.",
-                "probability": 0.5,
-                "impact": "medium",
-                "confidence": "medium",
-                "rationale": "Domestic and economic pressures reshape choices.",
-            },
-            {
-                "year": 2030,
-                "event": "Stabilization attempt or renewed friction.",
-                "probability": 0.4,
-                "impact": "high",
-                "confidence": "low",
-                "rationale": "Outcome hinges on prior crisis management.",
+                "rationale": "Mock single-year contribution.",
             },
         ],
         "risks": ["Misperception", "Accidental escalation"],

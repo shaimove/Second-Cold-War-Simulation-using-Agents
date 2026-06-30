@@ -40,11 +40,11 @@ def kb_with_samples(tmp_path):
     (kb / "historical").mkdir(parents=True)
     (kb / "security").mkdir(parents=True)
     (kb / "economy").mkdir(parents=True)
-    (kb / "historical" / "cold_war_ussr.md").write_text(
+    (kb / "historical" / "cold_war_ussr.txt").write_text(
         "The US USSR Cold War produced containment, arms races, and crisis management lessons.",
         encoding="utf-8",
     )
-    (kb / "security" / "taiwan_deterrence.md").write_text(
+    (kb / "security" / "taiwan_deterrence.txt").write_text(
         "Taiwan deterrence and gray-zone escalation require crisis stability frameworks.",
         encoding="utf-8",
     )
@@ -264,11 +264,12 @@ def test_retrieval_cache_stable_key(kb_with_samples):
 
 def test_graph_tier2_flow_mock_mode():
     node_names = [n[0] for n in NODES]
-    assert "disagreement_retrieval" in node_names
+    assert "year_2026_cycle" in node_names
+    assert "year_2031_cycle" in node_names
 
     final = run_graph(seed="Taiwan crisis and Cold War analogy", scenario_mode="base_case")
     assert final.run_metrics.rag_calls >= 1
-    assert final.run_metrics.discussion_rounds_completed >= 2
+    assert final.run_metrics.years_completed == 6
     assert "evidence_rag" in final.run_metrics.agents_used
 
 
@@ -296,16 +297,18 @@ def test_round3_no_extra_agent_retrieval(monkeypatch, kb_with_samples):
     """Round 1 agent retrieval only; round 3 should not call retrieve_for_agent."""
     calls = []
 
-    def _spy(seed, scenario_mode, agent_name, round_number=1, recorder=None):
-        calls.append((agent_name, round_number))
+    def _spy(seed, scenario_mode, agent_name, target_year=2026, round_number=1, recorder=None):
+        calls.append((agent_name, target_year, round_number))
         return []
 
     monkeypatch.setattr(rag, "retrieve_for_agent", _spy)
-    from app.graph import _run_discussion_round
     from app.llm import LLMClient
-    from app.schemas import ScenarioState
+    from app.schemas import EvidenceLanes, RunMetrics, ScenarioState
+    from app.year_simulation import _run_discussion_round
 
-    state = ScenarioState(run_id="t", seed="x", scenario_mode="base_case")
+    state = ScenarioState(run_id="t", seed="x", scenario_mode="base_case", current_year=2027)
     state.evidence_lanes = EvidenceLanes()
-    _run_discussion_round(state, LLMClient(), 3)
+    state.run_metrics = RunMetrics()
+    recorder = rag.RagMetricsRecorder(metrics=state.run_metrics)
+    _run_discussion_round(state, LLMClient(), 3, recorder)
     assert calls == []

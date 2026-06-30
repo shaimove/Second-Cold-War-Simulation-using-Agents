@@ -35,6 +35,7 @@ def _isolated_env(monkeypatch, tmp_path):
     monkeypatch.setenv(
         "RAG_CHUNKS_PATH", str(tmp_path / "rag_chunks.json")
     )
+    monkeypatch.setenv("RAG_CHROMA_PATH", str(tmp_path / "chroma"))
     monkeypatch.setenv(
         "GENERATED_IMAGES_DIR", str(tmp_path / "generated_images")
     )
@@ -56,5 +57,6 @@ def _isolated_env(monkeypatch, tmp_path):
     # Reset retrieval cache between tests.
     from app import rag as rag_mod
     rag_mod._RETRIEVAL_CACHE.clear()
+    rag_mod.vector_store.reset_vector_store_cache()
 
     yield

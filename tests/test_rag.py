@@ -14,7 +14,7 @@ def test_retrieve_with_empty_kb_returns_empty(tmp_path):
 def test_ingest_and_retrieve_basic(tmp_path):
     kb = tmp_path / "kb"
     (kb / "strategy").mkdir(parents=True)
-    (kb / "strategy" / "containment.md").write_text(
+    (kb / "strategy" / "containment.txt").write_text(
         "Containment was a U.S. strategy during the Cold War with the USSR. "
         "It shaped alliances and deterrence frameworks in the Indo-Pacific.",
         encoding="utf-8",
@@ -36,7 +36,7 @@ def test_ingest_and_retrieve_basic(tmp_path):
     chunks = rag.retrieve("Cold War alliances", chunks_path=str(out))
     assert len(chunks) > 0
     paths = [c.source_path for c in chunks]
-    assert any("containment.md" in p for p in paths)
+    assert any("containment.txt" in p for p in paths)
     for c in chunks:
         assert c.chunk_id
         assert c.source_type in (
@@ -51,10 +51,22 @@ def test_ingest_and_retrieve_basic(tmp_path):
         assert c.domain in rag.VALID_DOMAINS
 
 
+def test_ingest_builds_chroma_index(tmp_path):
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "doc.txt").write_text(
+        "Taiwan deterrence and semiconductor export controls.", encoding="utf-8"
+    )
+    out = tmp_path / "chunks.json"
+    res = rag.ingest_knowledge_base(str(kb), str(out))
+    assert res.vector_index_path
+    assert rag.vector_store.collection_count(chunks_path=str(out)) >= 1
+
+
 def test_retrieval_cache_hit(tmp_path):
     kb = tmp_path / "kb"
     kb.mkdir()
-    (kb / "doc.md").write_text(
+    (kb / "doc.txt").write_text(
         "Semiconductor supply chains and export controls.", encoding="utf-8"
     )
     out = tmp_path / "chunks.json"
